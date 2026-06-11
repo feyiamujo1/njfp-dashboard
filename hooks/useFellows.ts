@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { dashboardService } from "@/lib/services/dashboardService";
+import { fellowService } from "@/lib/services/fellowService";
 import { STALE_TIME } from "@/lib/constants";
 
 export function useFellows() {
   return useQuery({
     queryKey: ["fellows"],
-    queryFn: () => dashboardService.getFellowList(),
+    queryFn: () => fellowService.getFellowList(),
     staleTime: STALE_TIME,
   });
 }

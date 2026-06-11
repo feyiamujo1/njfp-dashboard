@@ -37,11 +37,11 @@ const NAV_ITEMS = [
     icon: <TrophyOutlined />,
     label: <Link href="/dashboard/assessments">Learning Performance</Link>,
   },
-  {
-    key: "/dashboard/mentorship",
-    icon: <TeamOutlined />,
-    label: <Link href="/dashboard/mentorship">Mentorship</Link>,
-  },
+  // {
+  //   key: "/dashboard/mentorship",
+  //   icon: <TeamOutlined />,
+  //   label: <Link href="/dashboard/mentorship">Mentorship</Link>,
+  // },
   {
     key: "/dashboard/risk",
     icon: <AlertOutlined />,

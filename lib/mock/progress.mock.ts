@@ -1,6 +1,7 @@
 import type { ProgressStats } from "@/lib/types";
 
 export const progressMock: ProgressStats = {
+  totalEnrolled: 5000,
   startedPct: 89,
   completedPct: 42,
   avgCompletionRate: 77,

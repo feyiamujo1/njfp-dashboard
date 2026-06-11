@@ -1,9 +1,3 @@
-import { progressMock } from "@/lib/mock/progress.mock";
-import { engagementMock } from "@/lib/mock/engagement.mock";
-import { performanceMock } from "@/lib/mock/performance.mock";
-import { mentorshipMock } from "@/lib/mock/mentorship.mock";
-import { riskMock } from "@/lib/mock/risk.mock";
-import { fellowsMock } from "@/lib/mock/fellows.mock";
 import type {
   OverviewStats,
   ModuleProgress,
@@ -12,10 +6,7 @@ import type {
   PerformanceStats,
   MentorshipStats,
   RiskStats,
-  FellowSummary,
 } from "@/lib/types";
-
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface OverviewData {
   stats: OverviewStats;
@@ -33,36 +24,67 @@ export const dashboardService = {
         (body as { error?: string }).error ?? `HTTP ${res.status}`
       );
     }
+    console.log("The getOverview is  ", res?.json());
     return res.json() as Promise<OverviewData>;
   },
 
   async getProgress(): Promise<ProgressStats> {
-    await delay(400);
-    return progressMock;
+    const res = await fetch("/api/dashboard/progress", { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        (body as { error?: string }).error ?? `HTTP ${res.status}`
+      );
+    }
+    console.log("The getProgress is  ", res?.json());
+    return res.json() as Promise<ProgressStats>;
   },
 
   async getEngagement(): Promise<EngagementStats> {
-    await delay(400);
-    return engagementMock;
+    const res = await fetch("/api/dashboard/engagement", { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        (body as { error?: string }).error ?? `HTTP ${res.status}`
+      );
+    }
+    console.log("The getEngagement is  ", res?.json());
+    return res.json() as Promise<EngagementStats>;
   },
 
   async getPerformance(): Promise<PerformanceStats> {
-    await delay(400);
-    return performanceMock;
+    const res = await fetch("/api/dashboard/performance", { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        (body as { error?: string }).error ?? `HTTP ${res.status}`
+      );
+    }
+    console.log("The getPerformance is  ", res?.json());
+    return res.json() as Promise<PerformanceStats>;
   },
 
   async getMentorship(): Promise<MentorshipStats> {
-    await delay(400);
-    return mentorshipMock;
+    const res = await fetch("/api/dashboard/mentorship", { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        (body as { error?: string }).error ?? `HTTP ${res.status}`
+      );
+    }
+    return res.json() as Promise<MentorshipStats>;
   },
 
   async getRisk(): Promise<RiskStats> {
-    await delay(400);
-    return riskMock;
+    const res = await fetch("/api/dashboard/risk", { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        (body as { error?: string }).error ?? `HTTP ${res.status}`
+      );
+    }
+    console.log("The getRisk is  ", res?.json());
+    return res.json() as Promise<RiskStats>;
   },
 
-  async getFellowList(): Promise<FellowSummary[]> {
-    await delay(400);
-    return fellowsMock;
-  },
 };

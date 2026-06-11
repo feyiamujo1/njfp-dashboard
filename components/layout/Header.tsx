@@ -15,9 +15,9 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/modules": "Course Progress",
   "/dashboard/engagement": "Engagement",
   "/dashboard/assessments": "Learning Performance",
-  "/dashboard/mentorship": "Mentorship",
+  // "/dashboard/mentorship": "Mentorship",
   "/dashboard/risk": "Risk & Intervention",
-  "/dashboard/learners": "Fellows",
+  "/dashboard/learners": "Learners",
   "/dashboard/course-structure": "Course Structure"
 };
 
@@ -73,14 +73,14 @@ export default function DashboardHeader() {
       </div>
 
       <Space>
-        <RangePicker separator="-" size="small" />
-        <Button
+        {/* <RangePicker separator="-" size="small" /> */}
+        {/* <Button
           icon={<ReloadOutlined />}
           onClick={handleRefresh}
           size="small"
           iconPlacement={"start"}>
           Refresh
-        </Button>
+        </Button> */}
       </Space>
     </Header>
   );

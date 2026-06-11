@@ -29,7 +29,7 @@ export default function ModulesPage() {
     );
   }
 
-  const totalEnrolled = data?.funnel[0]?.count;
+  const totalEnrolled = data?.totalEnrolled ?? data?.funnel[0]?.count;
 
   return (
     <div className="space-y-6">
@@ -92,7 +92,7 @@ export default function ModulesPage() {
                           {m.moduleName}
                         </span>
                         <span className="text-sm text-slate-500">
-                          {m.completedCount.toLocaleString()} fellows ·{" "}
+                          {m.completedCount.toLocaleString()} learners ·{" "}
                           <span style={{ color }} className="font-semibold">
                             {m.completionPct}%
                           </span>

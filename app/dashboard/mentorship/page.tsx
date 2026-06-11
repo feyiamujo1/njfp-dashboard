@@ -32,18 +32,23 @@ export default function MentorshipPage() {
     );
   }
 
+  // NATVIEW fields are null until external API is wired — exclude nulls from chart
   const radialData = [
-    { name: "Pod Participation", value: data?.podParticipation ?? 0, fill: CHART_COLORS.neutral },
-    { name: "Mentor Sessions", value: data?.mentorSessions ?? 0, fill: CHART_COLORS.warning },
-    { name: "Webinar Attendance", value: data?.webinarAttendance ?? 0, fill: CHART_COLORS.primary },
-  ];
+    { name: "Pod Participation", value: data?.podParticipation, fill: CHART_COLORS.neutral },
+    { name: "Mentor Sessions", value: data?.mentorSessions, fill: CHART_COLORS.warning },
+    { name: "Webinar Attendance", value: data?.webinarAttendance, fill: CHART_COLORS.primary },
+  ].filter((d) => d.value !== null && d.value !== undefined) as {
+    name: string;
+    value: number;
+    fill: string;
+  }[];
 
   return (
     <div className="space-y-6">
       <Alert
         type="info"
         showIcon
-        description="Mentorship data is currently using placeholder values pending API configuration."
+        description="Forum engagement and leaderboard data are live from Moodle. Webinar attendance, mentor sessions, and pod participation require NATVIEW integration and are not yet available."
         className="mb-2"
       />
 
@@ -51,24 +56,24 @@ export default function MentorshipPage() {
         <Col xs={24} sm={12} lg={6}>
           <KPICard
             title="Webinar Attendance"
-            value={data?.webinarAttendance ?? "—"}
-            suffix="%"
+            value={data?.webinarAttendance != null ? data.webinarAttendance : "—"}
+            suffix={data?.webinarAttendance != null ? "%" : undefined}
             loading={isLoading}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <KPICard
             title="Mentor Sessions"
-            value={data?.mentorSessions ?? "—"}
-            suffix="%"
+            value={data?.mentorSessions != null ? data.mentorSessions : "—"}
+            suffix={data?.mentorSessions != null ? "%" : undefined}
             loading={isLoading}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <KPICard
             title="Pod Participation"
-            value={data?.podParticipation ?? "—"}
-            suffix="%"
+            value={data?.podParticipation != null ? data.podParticipation : "—"}
+            suffix={data?.podParticipation != null ? "%" : undefined}
             loading={isLoading}
           />
         </Col>

@@ -39,7 +39,7 @@ export default function OverviewPage() {
   }
 
   const stats = data?.stats;
-  const loading = isLoading;
+  const loading = isLoading || !data;
 
   return (
     <div className="space-y-6">
@@ -123,7 +123,7 @@ export default function OverviewPage() {
         {loading ? (
           <Skeleton active paragraph={{ rows: 6 }} />
         ) : (
-          <ModuleBarChart data={data!.moduleCompletion} />
+          <ModuleBarChart data={data?.moduleCompletion ?? []} />
         )}
       </Card>
 
@@ -136,7 +136,7 @@ export default function OverviewPage() {
             ) : (
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart
-                  data={data!.weeklyActive}
+                  data={data?.weeklyActive ?? []}
                   margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -167,7 +167,7 @@ export default function OverviewPage() {
             {loading ? (
               <Skeleton active paragraph={{ rows: 6 }} />
             ) : (
-              <RiskDonutChart data={data!.riskDistribution} />
+              <RiskDonutChart data={data?.riskDistribution ?? { active: 0, atRisk: 0, inactive: 0 }} />
             )}
           </Card>
         </Col>

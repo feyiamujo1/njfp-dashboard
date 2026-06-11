@@ -1,27 +1,21 @@
 "use client";
 
-import { Table, Tag, Avatar } from "antd";
+import { Table, Avatar } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
 import moment from "moment";
-import type { FellowSummary, RiskLevel } from "@/lib/types";
+import type { Fellow } from "@/lib/types";
 import { TABLE_PAGE_SIZE } from "@/lib/constants";
 
-const RISK_TAG: Record<RiskLevel, { color: string; label: string }> = {
-  active: { color: "success", label: "Active" },
-  at_risk: { color: "warning", label: "At Risk" },
-  inactive: { color: "error", label: "Inactive" },
-};
-
 interface Props {
-  data: FellowSummary[];
+  data: Fellow[];
   loading?: boolean;
 }
 
 export default function FellowsTable({ data, loading }: Props) {
   const router = useRouter();
 
-  const columns: ColumnsType<FellowSummary> = [
+  const columns: ColumnsType<Fellow> = [
     {
       title: "Fellow",
       key: "fellow",
@@ -43,42 +37,11 @@ export default function FellowsTable({ data, loading }: Props) {
       key: "lastActive",
       render: (ts: number) => (
         <span className="text-slate-600 text-sm">
-          {moment.unix(ts).fromNow()}
+          {ts ? moment.unix(ts).fromNow() : "Never"}
         </span>
       ),
-      sorter: (a, b) => b.lastcourseaccess - a.lastcourseaccess,
-    },
-    {
-      title: "Completion",
-      dataIndex: "completionPct",
-      key: "completion",
-      render: (v: number) => (
-        <span className="font-medium">{v}%</span>
-      ),
-      sorter: (a, b) => b.completionPct - a.completionPct,
-    },
-    {
-      title: "Avg Quiz",
-      dataIndex: "avgQuizScore",
-      key: "quiz",
-      render: (v: number) => (
-        <span className="font-medium">{v}%</span>
-      ),
-      sorter: (a, b) => b.avgQuizScore - a.avgQuizScore,
-    },
-    {
-      title: "Risk Level",
-      dataIndex: "riskLevel",
-      key: "risk",
-      render: (v: RiskLevel) => (
-        <Tag color={RISK_TAG[v].color}>{RISK_TAG[v].label}</Tag>
-      ),
-      filters: [
-        { text: "Active", value: "active" },
-        { text: "At Risk", value: "at_risk" },
-        { text: "Inactive", value: "inactive" },
-      ],
-      onFilter: (value, record) => record.riskLevel === value,
+      sorter: (a, b) => (b.lastcourseaccess ?? 0) - (a.lastcourseaccess ?? 0),
+      defaultSortOrder: "ascend",
     },
   ];
 

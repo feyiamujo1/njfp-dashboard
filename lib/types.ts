@@ -96,9 +96,9 @@ export interface PerformanceStats {
 }
 
 export interface MentorshipStats {
-  webinarAttendance: number;
-  mentorSessions: number;
-  podParticipation: number;
+  webinarAttendance: number | null; // NATVIEW — null until external API wired
+  mentorSessions: number | null;    // NATVIEW — null until external API wired
+  podParticipation: number | null;  // NATVIEW — null until external API wired
   forumPosts: number;
   forumByModule: {
     moduleId: number;
@@ -119,6 +119,7 @@ export interface RiskStats {
 }
 
 export interface ProgressStats {
+  totalEnrolled: number;
   startedPct: number;
   completedPct: number;
   avgCompletionRate: number;

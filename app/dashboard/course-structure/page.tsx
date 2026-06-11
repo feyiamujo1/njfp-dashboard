@@ -1,227 +1,217 @@
 "use client";
 
-import { Card, Tag, Alert, Collapse } from "antd";
+import { Card, Tag, Alert, Collapse, Skeleton, Result, Button } from "antd";
 import {
   BookOutlined,
   FileTextOutlined,
   MessageOutlined,
   PlayCircleOutlined,
+  FormOutlined,
+  PaperClipOutlined,
+  LinkOutlined,
+  QuestionCircleOutlined,
 } from "@ant-design/icons";
+import { useCourseStructure } from "@/hooks/useCourseStructure";
+import type { CourseModule } from "@/hooks/useCourseStructure";
 
-const MODULES = [
-  {
-    id: 0,
-    name: "Course Introduction",
-    lessons: [],
-    intro: true,
-    items: ["Welcome Address", "Course Map", "Learning Activities & Assessment"],
-  },
-  {
-    id: 1,
-    name: "Module 1 — Entrepreneurial Mindset and Intention",
-    lessons: [
-      "Entrepreneurship: Meaning, Types & Nigerian Realities",
-      "Mindset — Resilience, Curiosity, and Discipline",
-      "Intention & Purpose — Clarifying Your \"Why\"",
-      "Overcoming Fear & Failure (The Failure Resume)",
-      "Values-Based Entrepreneurship",
-      "Growth Mindset & Self-Leadership",
-    ],
-  },
-  {
-    id: 2,
-    name: "Module 2 — Opportunity Identification & Innovation",
-    lessons: [
-      "Spotting Market Gaps and Trends",
-      "Creative Problem-Solving",
-      "Validating Business Ideas",
-      "Design Thinking Fundamentals",
-      "Minimum Viable Product (MVP)",
-      "Innovation in the Nigerian Context",
-    ],
-  },
-  {
-    id: 3,
-    name: "Module 3 — Customers and Markets",
-    lessons: [
-      "Understanding Your Target Customer",
-      "Market Research Techniques",
-      "Customer Segmentation",
-      "Value Proposition Design",
-      "Pricing Strategies",
-      "Competition Analysis",
-    ],
-  },
-  {
-    id: 4,
-    name: "Module 4 — Resources and Legality",
-    lessons: [
-      "Human & Financial Resources",
-      "Business Registration in Nigeria",
-      "Intellectual Property Basics",
-      "Contracts and Legal Obligations",
-      "Tax Compliance for SMEs",
-      "Regulatory Landscape",
-    ],
-  },
-  {
-    id: 5,
-    name: "Module 5 — Execution",
-    lessons: [
-      "Business Planning & Roadmapping",
-      "Setting Goals and Milestones",
-      "Operations Management",
-      "Financial Management Basics",
-      "Building a Team",
-      "Managing Risk",
-    ],
-  },
-  {
-    id: 6,
-    name: "Module 6 — Communication and Growth",
-    lessons: [
-      "Storytelling for Entrepreneurs",
-      "Pitching to Investors",
-      "Digital Marketing Essentials",
-      "Social Media Strategy",
-      "Networking and Partnerships",
-      "Scaling Your Business",
-    ],
-  },
-  {
-    id: 7,
-    name: "Module 7 — Leadership and People Engagement",
-    lessons: [
-      "Leadership Styles and Principles",
-      "Building Organisational Culture",
-      "Delegation and Empowerment",
-      "Conflict Resolution",
-      "Community and Social Impact",
-      "Sustaining Motivation",
-    ],
-  },
-];
+// ── Activity type config ──────────────────────────────────────────────────────
 
-export default function CourseStructurePage() {
-  const collapseItems = MODULES.map((mod) => ({
-    key: String(mod.id),
-    label: (
-      <div className="flex items-center gap-3">
-        <BookOutlined className="text-blue-600" />
-        <span className="font-semibold text-slate-800">{mod.name}</span>
-        {!mod.intro && (
-          <Tag color="blue" className="ml-auto">
-            {mod.lessons.length} lessons + quiz + forum
+const MOD_CONFIG: Record<
+  string,
+  { icon: React.ReactNode; color: string; tagColor: string; label: string }
+> = {
+  subsection: {
+    icon: <FileTextOutlined className="text-blue-500 text-sm" />,
+    color: "bg-blue-50",
+    tagColor: "blue",
+    label: "lesson",
+  },
+  forum: {
+    icon: <MessageOutlined className="text-purple-500 text-sm" />,
+    color: "bg-purple-50",
+    tagColor: "purple",
+    label: "forum",
+  },
+  label: {
+    icon: <PlayCircleOutlined className="text-slate-400 text-sm" />,
+    color: "",
+    tagColor: "default",
+    label: "video",
+  },
+  quiz: {
+    icon: <QuestionCircleOutlined className="text-orange-500 text-sm" />,
+    color: "bg-orange-50",
+    tagColor: "orange",
+    label: "quiz",
+  },
+  assign: {
+    icon: <FormOutlined className="text-green-500 text-sm" />,
+    color: "bg-green-50",
+    tagColor: "green",
+    label: "assignment",
+  },
+  resource: {
+    icon: <PaperClipOutlined className="text-teal-500 text-sm" />,
+    color: "bg-teal-50",
+    tagColor: "cyan",
+    label: "resource",
+  },
+  url: {
+    icon: <LinkOutlined className="text-teal-500 text-sm" />,
+    color: "bg-teal-50",
+    tagColor: "cyan",
+    label: "link",
+  },
+};
+
+const DEFAULT_MOD = {
+  icon: <BookOutlined className="text-slate-400 text-sm" />,
+  color: "",
+  tagColor: "default" as const,
+  label: "activity",
+};
+
+function getModConfig(modname: string) {
+  return MOD_CONFIG[modname] ?? DEFAULT_MOD;
+}
+
+// ── Activity row ──────────────────────────────────────────────────────────────
+
+function ActivityRow({ mod, index }: { mod: CourseModule; index: number }) {
+  const cfg = getModConfig(mod.modname);
+  const tracked = mod.completion > 0;
+
+  return (
+    <div
+      className={`flex items-center gap-2.5 py-1.5 px-2 rounded-md ${cfg.color}`}
+    >
+      {cfg.icon}
+      <span className="text-slate-700 text-sm flex-1 min-w-0 truncate">
+        {mod.modname === "subsection" && (
+          <span className="text-slate-400 mr-1.5 text-xs">
+            {String(index + 1).padStart(2, "0")}
+          </span>
+        )}
+        {mod.name}
+      </span>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {tracked && (
+          <Tag color="geekblue" className="text-xs m-0">
+            tracked
           </Tag>
         )}
+        <Tag color={cfg.tagColor} className="text-xs m-0">
+          {cfg.label}
+        </Tag>
       </div>
-    ),
-    children: (
-      <div className="space-y-2 pl-2">
-        {mod.intro ? (
-          mod.items?.map((item, i) => (
-            <div key={i} className="flex items-center gap-2 py-1">
-              <PlayCircleOutlined className="text-slate-400 text-sm" />
-              <span className="text-slate-600 text-sm">{item}</span>
-              <Tag className="ml-auto" color="default">
-                label
-              </Tag>
-            </div>
-          ))
-        ) : (
-          <>
-            {/* Overview video */}
-            <div className="flex items-center gap-2 py-1">
-              <PlayCircleOutlined className="text-slate-400 text-sm" />
-              <span className="text-slate-500 text-sm italic">
-                Module Overview (video)
-              </span>
-              <Tag className="ml-auto" color="default">
-                label
-              </Tag>
-            </div>
+    </div>
+  );
+}
 
-            {/* Lessons */}
-            {mod.lessons.map((lesson, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-2 py-1 rounded-md bg-blue-50 px-2"
-              >
-                <FileTextOutlined className="text-blue-500 text-sm" />
-                <span className="text-slate-700 text-sm">
-                  Lesson {mod.id}.{i + 1}: {lesson}
-                </span>
-                <Tag className="ml-auto" color="blue">
-                  subsection
-                </Tag>
-              </div>
-            ))}
+// ── Page ──────────────────────────────────────────────────────────────────────
 
-            {/* Summary video */}
-            <div className="flex items-center gap-2 py-1">
-              <PlayCircleOutlined className="text-slate-400 text-sm" />
-              <span className="text-slate-500 text-sm italic">
-                Module Summary (video)
-              </span>
-              <Tag className="ml-auto" color="default">
-                label
+export default function CourseStructurePage() {
+  const { data, isLoading, isError, error, refetch } = useCourseStructure();
+
+  if (isError) {
+    return (
+      <Result
+        status="error"
+        title="Failed to load course structure"
+        subTitle={(error as Error)?.message}
+        extra={<Button onClick={() => refetch()}>Retry</Button>}
+      />
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <Skeleton active paragraph={{ rows: 12 }} />
+        </Card>
+      </div>
+    );
+  }
+
+  const sections = data?.sections ?? [];
+  const totalTracked = sections.reduce((s, sec) => s + sec.trackedCount, 0);
+  const totalActivities = sections.reduce((s, sec) => s + sec.totalModules, 0);
+
+  const collapseItems = sections.map((sec) => {
+    const lessonCount = sec.modules.filter((m) => m.modname === "subsection").length;
+    const isIntro = sec.section === 0;
+    let lessonIdx = 0;
+
+    return {
+      key: String(sec.id),
+      label: (
+        <div className="flex items-center gap-3 min-w-0">
+          <BookOutlined className="text-blue-600 shrink-0" />
+          <span className="font-semibold text-slate-800 truncate">{sec.name}</span>
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            {lessonCount > 0 && (
+              <Tag color="blue" className="m-0">
+                {lessonCount} lesson{lessonCount !== 1 ? "s" : ""}
               </Tag>
-            </div>
-
-            {/* Forum */}
-            <div className="flex items-center gap-2 py-1 rounded-md bg-purple-50 px-2">
-              <MessageOutlined className="text-purple-500 text-sm" />
-              <span className="text-slate-700 text-sm">
-                Module {mod.id} — Discussion Forum
-              </span>
-              <Tag className="ml-auto" color="purple">
-                forum
+            )}
+            {sec.trackedCount > 0 && (
+              <Tag color="geekblue" className="m-0 hidden sm:inline-flex">
+                {sec.trackedCount} tracked
               </Tag>
-            </div>
-          </>
-        )}
-
-        {/* Social forum for intro section */}
-        {mod.intro && (
-          <div className="flex items-center gap-2 py-1 rounded-md bg-purple-50 px-2">
-            <MessageOutlined className="text-purple-500 text-sm" />
-            <span className="text-slate-700 text-sm">Social Forum</span>
-            <Tag className="ml-auto" color="purple">
-              forum
-            </Tag>
+            )}
           </div>
-        )}
-      </div>
-    ),
-  }));
+        </div>
+      ),
+      children: (
+        <div className="space-y-1.5 pl-1">
+          {sec.modules.length === 0 ? (
+            <p className="text-slate-400 text-sm italic">No activities in this section.</p>
+          ) : (
+            sec.modules.map((mod) => {
+              const idx = mod.modname === "subsection" ? lessonIdx++ : -1;
+              return <ActivityRow key={mod.id} mod={mod} index={idx} />;
+            })
+          )}
+          {!isIntro && (
+            <p className="text-slate-400 text-xs pt-1 pl-1">
+              {sec.trackedCount} of {sec.totalModules} activit
+              {sec.totalModules !== 1 ? "ies" : "y"} contribute to completion tracking.
+            </p>
+          )}
+        </div>
+      ),
+    };
+  });
 
   return (
     <div className="space-y-4">
       <Alert
         type="info"
         showIcon
-        description="This structure is sourced from the live NJFP Moodle LMS. Completion-trackable items are subsections. Labels (video embeds) have no completion tracking."
+        description="Live from the NJFP Moodle LMS. Tracked items (subsections) count toward each learner's completion percentage."
       />
 
       <Card
-        title="Course Content Map"
+        title={
+          <div className="flex items-center gap-3">
+            <span>Course Content Map</span>
+            <span className="text-slate-400 text-sm font-normal">
+              {sections.length} sections · {totalActivities} activities · {totalTracked} tracked
+            </span>
+          </div>
+        }
         extra={
-          <div className="flex items-center gap-3 text-sm text-slate-500">
-            <span>
-              <Tag color="blue">subsection</Tag> trackable
-            </span>
-            <span>
-              <Tag color="purple">forum</Tag> discussion
-            </span>
-            <span>
-              <Tag color="default">label</Tag> video
-            </span>
+          <div className="hidden sm:flex items-center gap-3 text-sm text-slate-500">
+            <span><Tag color="blue">lesson</Tag> subsection</span>
+            <span><Tag color="geekblue">tracked</Tag> counts toward completion</span>
+            <span><Tag color="purple">forum</Tag> discussion</span>
           </div>
         }
       >
         <Collapse
           items={collapseItems}
-          defaultActiveKey={["1"]}
+          defaultActiveKey={sections.length > 0 ? [String(sections[1]?.id ?? sections[0]?.id)] : []}
           className="bg-transparent!"
         />
       </Card>
