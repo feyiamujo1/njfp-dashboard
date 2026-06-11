@@ -23,6 +23,16 @@ const NAV_ITEMS = [
     label: <Link href="/dashboard">Overview</Link>,
   },
   {
+    key: "/dashboard/learners",
+    icon: <UserOutlined />,
+    label: <Link href="/dashboard/learners">Learners</Link>,
+  },
+  {
+    key: "/dashboard/course-structure",
+    icon: <ApartmentOutlined />,
+    label: <Link href="/dashboard/course-structure">Course Structure</Link>,
+  },
+  {
     key: "/dashboard/modules",
     icon: <BookOutlined />,
     label: <Link href="/dashboard/modules">Course Progress</Link>,
@@ -46,16 +56,6 @@ const NAV_ITEMS = [
     key: "/dashboard/risk",
     icon: <AlertOutlined />,
     label: <Link href="/dashboard/risk">Risk & Intervention</Link>,
-  },
-  {
-    key: "/dashboard/learners",
-    icon: <UserOutlined />,
-    label: <Link href="/dashboard/learners">Learners</Link>,
-  },
-  {
-    key: "/dashboard/course-structure",
-    icon: <ApartmentOutlined />,
-    label: <Link href="/dashboard/course-structure">Course Structure</Link>,
   },
 ];
 
