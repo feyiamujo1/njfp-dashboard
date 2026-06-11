@@ -1,65 +1,146 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { Button } from "antd";
+import {
+  AlertOutlined,
+  ApartmentOutlined,
+  ArrowRightOutlined,
+  BookOutlined,
+  TeamOutlined,
+  ThunderboltOutlined,
+  TrophyOutlined,
+  UserOutlined,
+} from "@ant-design/icons";
+import Link from "next/link";
+
+
+const SECTIONS = [
+  {
+    icon: <BookOutlined className="text-2xl text-blue-700" />,
+    title: "Course Progress",
+    href: "/dashboard/modules",
+    description:
+      "Track module completion rates across all 7 modules. View the enrolment-to-completion funnel and identify where fellows disengage.",
+  },
+  {
+    icon: <ThunderboltOutlined className="text-2xl text-violet-600" />,
+    title: "Engagement",
+    href: "/dashboard/engagement",
+    description:
+      "Monitor daily, weekly, and monthly active users. Explore login heatmaps and see which modules drive the most content interactions.",
+  },
+  {
+    icon: <TrophyOutlined className="text-2xl text-amber-600" />,
+    title: "Learning Performance",
+    href: "/dashboard/assessments",
+    description:
+      "Analyse quiz scores by module, assignment submission rates, and pass/fail distribution. Surface top learners and those needing support.",
+  },
+  {
+    icon: <TeamOutlined className="text-2xl text-green-600" />,
+    title: "Mentorship",
+    href: "/dashboard/mentorship",
+    description:
+      "Evaluate webinar attendance, mentor session participation, pod engagement, and forum activity. View per-fellow engagement scores.",
+  },
+  {
+    icon: <AlertOutlined className="text-2xl text-red-600" />,
+    title: "Risk & Intervention",
+    href: "/dashboard/risk",
+    description:
+      "Identify at-risk and inactive fellows based on last activity, quiz scores, and engagement. Act early before fellows fall behind.",
+  },
+  {
+    icon: <UserOutlined className="text-2xl text-cyan-600" />,
+    title: "Fellow Profiles",
+    href: "/dashboard/learners",
+    description:
+      "Access individual profiles with module-by-module progress, quiz history, assignment status, and a full activity timeline.",
+  },
+];
+
+export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="bg-slate-50 min-h-screen font-sans">
+
+      {/* Hero */}
+      <section className="bg-gradient-to-br from-slate-900 to-blue-900 py-24 px-8 text-center">
+        <span className="text-blue-300 text-xs tracking-widest uppercase font-semibold">
+          NJFP · Entrepreneurship Skills Training
+        </span>
+        <h1 className="text-white text-4xl font-bold mt-4 mb-4 leading-tight">
+          Programme Analytics Dashboard
+        </h1>
+        <p className="text-slate-400 text-lg max-w-xl mx-auto mb-10 leading-relaxed">
+          A single command centre for monitoring enrolled fellows across
+          course progress, engagement, learning performance, mentorship, and
+          risk intervention.
+        </p>
+        <Link href="/dashboard">
+          <Button
+            type="primary"
+            size="large"
+            icon={<ArrowRightOutlined />}
+            iconPosition="end"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            Open Dashboard
+          </Button>
+        </Link>
+      </section>
+
+      {/* Section cards */}
+      <section className="py-16 px-8 max-w-6xl mx-auto">
+        <h2 className="text-center text-2xl font-semibold text-slate-900 mb-2">
+          What the dashboard tracks
+        </h2>
+        <p className="text-center text-slate-500 text-sm mb-10">
+          Six specialised views — each built for a different angle of programme
+          performance.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {SECTIONS.map((s) => (
+            <Link key={s.href} href={s.href} className="block h-full">
+              <div className="bg-white border border-slate-200 rounded-lg p-6 h-full hover:shadow-md hover:border-blue-300 transition-all">
+                <div className="mb-3">{s.icon}</div>
+                <h3 className="text-slate-900 font-semibold text-base mb-2">
+                  {s.title}
+                </h3>
+                <p className="text-slate-500 text-sm leading-relaxed">
+                  {s.description}
+                </p>
+              </div>
+            </Link>
+          ))}
         </div>
-      </main>
+      </section>
+
+      {/* Course structure callout */}
+      <section className="px-8 pb-16 max-w-6xl mx-auto">
+        <Link href="/dashboard/course-structure" className="block">
+          <div className="bg-white border border-slate-200 rounded-lg px-8 py-6 flex items-center justify-between hover:shadow-md hover:border-blue-300 transition-all">
+            <div className="flex items-center gap-4">
+              <ApartmentOutlined className="text-2xl text-slate-400" />
+              <div>
+                <h3 className="text-slate-900 font-semibold text-base mb-1">
+                  Course Structure
+                </h3>
+                <p className="text-slate-500 text-sm">
+                  Explore the full course content map pulled directly from the
+                  NJFP Moodle LMS — sections, modules, and activity types.
+                </p>
+              </div>
+            </div>
+            <ArrowRightOutlined className="text-slate-400 text-base shrink-0 ml-4" />
+          </div>
+        </Link>
+      </section>
+
+      {/* Footer */}
+      <footer className="text-center py-6 px-8 border-t border-slate-200 text-slate-400 text-xs">
+        NJFP Entrepreneurship Training · Internal Use Only
+      </footer>
+
     </div>
   );
 }
