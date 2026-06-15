@@ -1,40 +1,50 @@
 import { NextResponse } from "next/server";
-import {
-  getCachedStudents,
-  getCachedCourseModules,
-  getCachedRawCompletions,
-  getCachedGradeItems,
-  getCachedForumData,
-  getCachedAssignmentData,
-  makeCompletedByUser,
-} from "@/lib/server/sharedData";
+import { getCachedCourseModules } from "@/lib/server/sharedData";
 import { moodleCall } from "@/lib/moodle";
 import { COURSE_ID } from "@/lib/constants";
-import type { ActivityEvent, RiskLevel } from "@/lib/types";
+import type { RiskLevel } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
-async function fetchCmidToSection(): Promise<
-  Map<number, { section: number; sectionName: string }>
-> {
-  const sections = await moodleCall<
-    Array<{
-      section: number;
-      name: string;
-      visible: 1 | 0;
-      modules: Array<{ id: number }>;
-    }>
-  >("core_course_get_contents", { courseid: COURSE_ID });
-
-  const map = new Map<number, { section: number; sectionName: string }>();
-  sections.forEach((s) => {
-    s.modules.forEach((m) => map.set(m.id, { section: s.section, sectionName: s.name }));
-  });
-  return map;
+async function fetchSingleStudent(userId: number) {
+  try {
+    const users = await moodleCall<
+      Array<{
+        id: number;
+        fullname: string;
+        email: string;
+        lastaccess: number;
+        profileimageurl: string;
+        customfields?: Array<{ shortname: string; value: string }>;
+      }>
+    >("core_user_get_users_by_field", {
+      field: "id",
+      "values[0]": userId,
+    });
+    const u = users?.[0];
+    if (!u) return null;
+    const cf = (u.customfields ?? []).reduce<Record<string, string>>((acc, f) => {
+      acc[f.shortname] = f.value;
+      return acc;
+    }, {});
+    return {
+      id: u.id,
+      fullname: u.fullname,
+      email: u.email,
+      lastaccess: u.lastaccess,
+      profileimageurl: u.profileimageurl,
+      gender: cf.gender ?? null,
+      state: cf.state ?? null,
+      lga: cf.lga ?? null,
+      region: cf.region ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -44,37 +54,38 @@ export async function GET(
     return NextResponse.json({ error: "Invalid learner ID" }, { status: 400 });
   }
 
-  try {
-    const [
-      students,
-      courseModules,
-      rawCompletions,
-      gradeItemsByUser,
-      forumData,
-      assignData,
-      cmidToSection,
-    ] = await Promise.all([
-      getCachedStudents(),
-      getCachedCourseModules(),
-      getCachedRawCompletions(),
-      getCachedGradeItems(),
-      getCachedForumData(),
-      getCachedAssignmentData(),
-      fetchCmidToSection(),
-    ]);
+  // Client passes lastcourseaccess from its fellows-list cache to avoid a bulk
+  // enrolled-users fetch (which times out for 6000+ students).
+  const lastcourseaccess = Number(
+    new URL(req.url).searchParams.get("lastCourseAccess") ?? "0"
+  );
 
-    const student = students.find((s) => s.id === userId);
+  try {
+    const [courseModules, completionStatus, student] =
+      await Promise.all([
+        getCachedCourseModules(),
+        moodleCall<{
+          statuses: Array<{ cmid: number; state: number; tracking: number }>;
+        }>("core_completion_get_activities_completion_status", {
+          courseid: COURSE_ID,
+          userid: userId,
+        }).catch(() => ({ statuses: [] })),
+        fetchSingleStudent(userId),
+      ]);
+
     if (!student) {
       return NextResponse.json({ error: "Learner not found" }, { status: 404 });
     }
 
-    const completedByUser = makeCompletedByUser(rawCompletions);
-    const done = completedByUser.get(userId) ?? new Set<number>();
-    const totalActivities = courseModules.reduce((s, m) => s + m.activityIds.length, 0);
+    const done = new Set<number>(
+      (completionStatus.statuses ?? [])
+        .filter(({ tracking, state }) => tracking > 0 && state >= 1)
+        .map(({ cmid }) => cmid)
+    );
 
     // ── Per-module completion ─────────────────────────────────────────────
     const moduleProgress = courseModules.map((mod) => {
-      const completedCount = mod.activityIds.filter((id) => done.has(id)).length;
+      const completedCount = mod.activityIds.filter((aid) => done.has(aid)).length;
       return {
         moduleId: mod.moduleId,
         moduleName: mod.moduleName,
@@ -83,134 +94,33 @@ export async function GET(
             ? Math.round((completedCount / mod.activityIds.length) * 100)
             : 0,
         completedCount,
-        totalFellows: students.length,
+        totalFellows: 0,
       };
     });
 
+    const totalActivities = courseModules.reduce((s, m) => s + m.activityIds.length, 0);
     const totalDone = courseModules.reduce(
-      (sum, m) => sum + m.activityIds.filter((id) => done.has(id)).length,
+      (sum, m) => sum + m.activityIds.filter((aid) => done.has(aid)).length,
       0
     );
     const completionPct =
       totalActivities > 0 ? Math.round((totalDone / totalActivities) * 100) : 0;
 
-    // ── Per-module quiz scores ────────────────────────────────────────────
-    const userGradeItems = gradeItemsByUser[String(userId)] ?? [];
-    const moduleQuizScores = new Map<number, number[]>();
-    courseModules.forEach((m) => moduleQuizScores.set(m.moduleId, []));
-
-    userGradeItems.forEach((g) => {
-      if (g.itemmodule !== "quiz" || g.graderaw === null || g.grademax === 0) return;
-      const loc = cmidToSection.get(g.cmid);
-      if (!loc || !moduleQuizScores.has(loc.section)) return;
-      moduleQuizScores.get(loc.section)!.push(Math.round((g.graderaw / g.grademax) * 100));
-    });
-
-    const quizStats = courseModules.map((mod) => {
-      const scores = moduleQuizScores.get(mod.moduleId) ?? [];
-      const attemptCount = scores.length;
-      const passCount = scores.filter((s) => s >= 50).length;
-      const avgScore =
-        attemptCount > 0
-          ? Math.round(scores.reduce((a, b) => a + b, 0) / attemptCount)
-          : 0;
-      return {
-        moduleId: mod.moduleId,
-        moduleName: mod.moduleName,
-        avgScore,
-        passCount,
-        failCount: attemptCount - passCount,
-        attemptCount,
-      };
-    });
-
-    const validQuizScores = quizStats.filter((q) => q.attemptCount > 0).map((q) => q.avgScore);
-    const avgQuizScore =
-      validQuizScores.length > 0
-        ? Math.round(validQuizScores.reduce((a, b) => a + b, 0) / validQuizScores.length)
-        : 0;
-
-    // ── Assignments ───────────────────────────────────────────────────────
-    const assignments = assignData.assignments.map((a) => {
-      const userSub = (assignData.submissionsByAssignment[String(a.id)] ?? []).find(
-        (s) => s.userid === userId && s.status === "submitted"
-      );
-      const loc = cmidToSection.get(a.cmid);
-      const gradeItem = userGradeItems.find(
-        (g) => g.itemmodule === "assign" && g.cmid === a.cmid
-      );
-      const grade =
-        gradeItem && gradeItem.graderaw !== null && gradeItem.grademax > 0
-          ? Math.round((gradeItem.graderaw / gradeItem.grademax) * 100)
-          : undefined;
-
-      return {
-        id: a.id,
-        name: a.name,
-        moduleId: loc?.section ?? 0,
-        moduleName: loc?.sectionName ?? "Unknown",
-        submitted: !!userSub,
-        submittedAt: userSub?.timemodified,
-        grade,
-      };
-    });
-
-    const assignmentsSubmitted = assignments.filter((a) => a.submitted).length;
-
-    // ── Activity timeline from real events ────────────────────────────────
-    const timelineEvents: ActivityEvent[] = [];
-    let eventId = 1;
-
-    // Assignment submission events (up to 4 most recent)
-    assignments
-      .filter((a) => a.submitted && a.submittedAt)
-      .sort((a, b) => b.submittedAt! - a.submittedAt!)
-      .slice(0, 4)
-      .forEach((a) => {
-        timelineEvents.push({
-          id: eventId++,
-          description: `Submitted: ${a.name}`,
-          timestamp: a.submittedAt!,
-          type: "assignment",
-        });
-      });
-
-    // Most recent forum discussion
-    const latestForum = forumData.userLatestDiscussion[String(userId)];
-    if (latestForum) {
-      timelineEvents.push({
-        id: eventId++,
-        description: "Started a forum discussion",
-        timestamp: latestForum,
-        type: "forum",
-      });
-    }
-
-    // Last course access
-    if (student.lastcourseaccess) {
-      timelineEvents.push({
-        id: eventId++,
-        description: "Accessed the course",
-        timestamp: student.lastcourseaccess,
-        type: "login",
-      });
-    }
-
-    const activityTimeline = timelineEvents
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, 6);
-
     // ── Scalar KPIs ───────────────────────────────────────────────────────
-    const forumPosts = forumData.userDiscussionCount[String(userId)] ?? 0;
-    const engagementScore = Math.min(
-      100,
-      Math.round(forumPosts * 3 + avgQuizScore * 0.3 + completionPct * 0.2)
-    );
-    const daysSinceActive = student.lastcourseaccess
-      ? Math.floor((Date.now() / 1000 - student.lastcourseaccess) / 86400)
+    // avgQuizScore comes from the separate /quiz route (slow, per-user cached).
+    // Engagement here is completion-only until the quiz route responds.
+    const engagementScore = Math.min(100, Math.round(completionPct * 0.7));
+
+    // lastcourseaccess: prefer the URL param (course-specific, from the fellows
+    // list cache). Fall back to the user's global lastaccess when navigating
+    // directly without a cached param — avoids showing "Never" unnecessarily.
+    const effectiveLastCourseAccess = lastcourseaccess || student.lastaccess || 0;
+
+    const daysSinceActive = effectiveLastCourseAccess
+      ? Math.floor((Date.now() / 1000 - effectiveLastCourseAccess) / 86400)
       : 999;
     const riskLevel: RiskLevel =
-      !student.lastcourseaccess || daysSinceActive > 14
+      !effectiveLastCourseAccess || daysSinceActive > 14
         ? "inactive"
         : daysSinceActive > 7 || completionPct < 25
         ? "at_risk"
@@ -218,18 +128,14 @@ export async function GET(
 
     return NextResponse.json({
       ...student,
+      lastcourseaccess: effectiveLastCourseAccess,
       completionPct,
-      avgQuizScore,
-      assignmentsSubmitted,
-      assignmentsTotal: assignData.assignments.length,
-      forumPosts,
+      avgQuizScore: 0,
       engagementScore,
       riskLevel,
       daysSinceActive,
       moduleProgress,
-      quizStats,
-      assignments,
-      activityTimeline,
+      quizStats: [],
     });
   } catch (err) {
     return NextResponse.json(

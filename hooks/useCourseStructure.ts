@@ -17,6 +17,8 @@ export interface CourseSection {
   totalModules: number;
   trackedCount: number;
   modules: CourseModule[];
+  /** Child sections nested under this one (e.g. individual lessons in Mentorship Track) */
+  subSections: CourseSection[];
 }
 
 async function fetchCourseStructure(): Promise<{ sections: CourseSection[] }> {

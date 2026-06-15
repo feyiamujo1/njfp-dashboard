@@ -5,9 +5,7 @@ import moment from "moment";
 import {
   CheckCircleOutlined,
   FormOutlined,
-  MessageOutlined,
   LoginOutlined,
-  FileTextOutlined,
 } from "@ant-design/icons";
 import type { ActivityEvent } from "@/lib/types";
 
@@ -17,9 +15,7 @@ const EVENT_META: Record<
 > = {
   completion: { icon: <CheckCircleOutlined />, color: "#16A34A" },
   quiz: { icon: <FormOutlined />, color: "#1D4ED8" },
-  forum: { icon: <MessageOutlined />, color: "#7C3AED" },
   login: { icon: <LoginOutlined />, color: "#94A3B8" },
-  assignment: { icon: <FileTextOutlined />, color: "#D97706" },
 };
 
 interface Props {

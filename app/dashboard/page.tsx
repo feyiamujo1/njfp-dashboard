@@ -1,13 +1,26 @@
 "use client";
 
-import { Card, Row, Col, Skeleton, Result, Button } from "antd";
+import {
+  Avatar,
+  Card,
+  Row,
+  Col,
+  Skeleton,
+  Result,
+  Button,
+  Table,
+  Tag,
+  Tooltip
+} from "antd";
 import {
   TeamOutlined,
   ThunderboltOutlined,
   CheckCircleOutlined,
-  TrophyOutlined,
-  FileTextOutlined,
+  RiseOutlined,
   AlertOutlined,
+  StopOutlined,
+  InfoCircleOutlined,
+  TrophyOutlined
 } from "@ant-design/icons";
 import {
   LineChart,
@@ -15,17 +28,43 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+  ResponsiveContainer
 } from "recharts";
 import KPICard from "@/components/cards/KPICard";
 import ModuleBarChart from "@/components/charts/ModuleBarChart";
 import RiskDonutChart from "@/components/charts/RiskDonutChart";
 import { useOverview } from "@/hooks/useOverview";
+import { useOverviewCompletion } from "@/hooks/useOverviewCompletion";
 import { CHART_COLORS } from "@/lib/constants";
+import type { TopLearner } from "@/lib/types";
+
+function pct(value: number, total: number): string {
+  if (!total) return "";
+  return ` (${Math.round((value / total) * 100)}%)`;
+}
+
+function CardTitle({ title, hint }: { title: string; hint: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      {title}
+      <Tooltip
+        title={hint}
+        styles={{
+          root: {
+            maxWidth: 300
+          }
+        }}>
+        <InfoCircleOutlined className="text-slate-400 cursor-help text-xs font-normal" />
+      </Tooltip>
+    </span>
+  );
+}
 
 export default function OverviewPage() {
   const { data, isLoading, isError, error, refetch } = useOverview();
+  const { data: completion, isLoading: completionLoading } =
+    useOverviewCompletion();
 
   if (isError) {
     return (
@@ -43,109 +82,78 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-6">
-      {/* KPI row — 3 per row on large screens */}
+      {/* ── FAST SECTION ── loads immediately from the students cache ──────────── */}
+
+      {/* Row 1 — all 4 headcount KPIs together */}
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={8}>
+        <Col xs={24} sm={12} xl={6}>
           <KPICard
             title="Total Fellows"
             value={stats?.totalFellows.toLocaleString() ?? "—"}
             icon={<TeamOutlined />}
             loading={loading}
+            tooltip="All students enrolled in the NJFP course, regardless of whether they have ever logged in or started any activity."
           />
         </Col>
-        <Col xs={24} sm={12} lg={8}>
+        <Col xs={24} sm={12} xl={6}>
           <KPICard
             title="Active Fellows"
             value={stats?.activeFellows.toLocaleString() ?? "—"}
-            suffix={
-              stats
-                ? ` (${Math.round((stats.activeFellows / stats.totalFellows) * 100)}%)`
-                : ""
-            }
+            suffix={stats ? pct(stats.activeFellows, stats.totalFellows) : ""}
             icon={<ThunderboltOutlined />}
-            trend={{ direction: "up", label: "vs last week" }}
+            valueColor="#16A34A"
             loading={loading}
+            tooltip="Fellows who accessed the course at least once in the past 7 days, based on their last course access timestamp."
           />
         </Col>
-        <Col xs={24} sm={12} lg={8}>
+        <Col xs={24} sm={12} xl={6}>
           <KPICard
             title="At-Risk Fellows"
             value={stats?.atRiskCount.toLocaleString() ?? "—"}
-            suffix={
-              stats
-                ? ` (${Math.round((stats.atRiskCount / stats.totalFellows) * 100)}%)`
-                : ""
-            }
+            suffix={stats ? pct(stats.atRiskCount, stats.totalFellows) : ""}
             icon={<AlertOutlined />}
+            valueColor="#D97706"
+            loading={loading}
+            tooltip="Fellows who last accessed the course 7–30 days ago. They are disengaging and likely need a follow-up nudge before they go fully inactive."
+          />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <KPICard
+            title="Never Started"
+            value={stats?.neverStarted.toLocaleString() ?? "—"}
+            suffix={stats ? pct(stats.neverStarted, stats.totalFellows) : ""}
+            icon={<StopOutlined />}
             valueColor="#DC2626"
-            trend={{ direction: "down", label: "needs attention" }}
             loading={loading}
+            tooltip="Fellows enrolled in the course who have never accessed it — their last course access is recorded as zero."
           />
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={8}>
-          <KPICard
-            title="Completion Rate"
-            value={stats?.completionRate ?? "—"}
-            suffix="%"
-            icon={<CheckCircleOutlined />}
-            valueColor="#1D4ED8"
-            trend={{ direction: "up", label: "2% this month" }}
-            loading={loading}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={8}>
-          <KPICard
-            title="Avg Quiz Score"
-            value={stats?.avgQuizScore ?? "—"}
-            suffix="%"
-            icon={<TrophyOutlined />}
-            trend={{ direction: "flat", label: "stable" }}
-            loading={loading}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={8}>
-          <KPICard
-            title="Assignment Completion"
-            value={stats?.assignmentCompletionRate ?? "—"}
-            suffix="%"
-            icon={<FileTextOutlined />}
-            trend={{ direction: "up", label: "3% this month" }}
-            loading={loading}
-          />
-        </Col>
-      </Row>
-
-      {/* Module completion — full width */}
-      <Card title="Module Completion Rate"className="mb-5!">
-        {loading ? (
-          <Skeleton active paragraph={{ rows: 6 }} />
-        ) : (
-          <ModuleBarChart data={data?.moduleCompletion ?? []} />
-        )}
-      </Card>
-
-      {/* Weekly activity + risk distribution */}
+      {/* Row 2 — weekly trend (wide) + risk donut */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={16}>
-          <Card title="Weekly Active Fellows">
+          <Card
+            title={
+              <CardTitle
+                title="Weekly Active Fellows"
+                hint="Number of distinct fellows who accessed the course in each calendar week (Mon–Sun) over the past 8 weeks. A fellow is counted once per week regardless of how many sessions they had."
+              />
+            }>
             {loading ? (
               <Skeleton active paragraph={{ rows: 6 }} />
             ) : (
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart
                   data={data?.weeklyActive ?? []}
-                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-                >
+                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="week" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip
+                  <ChartTooltip
                     formatter={(v: unknown) => [
                       Number(v).toLocaleString(),
-                      "Active Fellows",
+                      "Active Fellows"
                     ]}
                   />
                   <Line
@@ -163,15 +171,169 @@ export default function OverviewPage() {
         </Col>
 
         <Col xs={24} lg={8}>
-          <Card title="Risk Distribution">
+          <Card
+            title={
+              <CardTitle
+                title="Risk Distribution"
+                hint="Active: accessed the course in the last 7 days. At-Risk: last access was 7–30 days ago. Inactive: no course activity in over 30 days, or never logged in."
+              />
+            }
+            className="h-full">
             {loading ? (
               <Skeleton active paragraph={{ rows: 6 }} />
             ) : (
-              <RiskDonutChart data={data?.riskDistribution ?? { active: 0, atRisk: 0, inactive: 0 }} />
+              <RiskDonutChart
+                data={
+                  data?.riskDistribution ?? {
+                    active: 0,
+                    atRisk: 0,
+                    inactive: 0
+                  }
+                }
+              />
             )}
           </Card>
         </Col>
       </Row>
+
+      {/* ── SLOW SECTION ── loads when completion data arrives ────────────────── */}
+
+      {/* Row 3 — completion KPIs */}
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12}>
+          <KPICard
+            title="Completion Rate"
+            value={completion?.completionRate ?? "—"}
+            suffix={completion ? "%" : ""}
+            icon={<CheckCircleOutlined />}
+            valueColor="#1D4ED8"
+            loading={completionLoading}
+            tooltip="% of fellows who have fully completed every tracked activity in at least half the course modules. Uses a strict definition — every activity in a module must be marked complete for that module to count."
+          />
+        </Col>
+        <Col xs={24} sm={12}>
+          <KPICard
+            title="Avg Completion"
+            value={completion?.avgCompletionPct ?? "—"}
+            suffix={completion ? "%" : ""}
+            icon={<RiseOutlined />}
+            loading={completionLoading}
+            tooltip="Average % of all course activities completed across every enrolled fellow, including those who have never logged in. The average among active learners only will be significantly higher."
+          />
+        </Col>
+      </Row>
+
+      {/* Module completion chart */}
+      <Card
+        className="mb-6!"
+        title={
+          <CardTitle
+            title="Module Completion Rate"
+            hint="For each module, the % of enrolled fellows who have completed every tracked activity in it. Only fully completed modules count — partial progress is not reflected here."
+          />
+        }>
+        {completionLoading ? (
+          <Skeleton active paragraph={{ rows: 6 }} />
+        ) : (
+          <ModuleBarChart data={completion?.moduleCompletion ?? []} />
+        )}
+      </Card>
+
+      {/* Top Learners table */}
+      <Card
+        title={
+          <CardTitle
+            title="Top Learners"
+            hint="The 20 fellows with the highest course completion percentage among those who have started at least one activity. Ranked by % of all tracked activities completed."
+          />
+        }
+        extra={
+          <div className="flex items-center gap-2">
+            {!completionLoading && completion && (
+              <span className="text-sm text-slate-500">
+                <span className="font-semibold text-slate-700">
+                  {completion.completedFellows.toLocaleString()}
+                </span>{" "}
+                fellow{completion.completedFellows !== 1 ? "s" : ""} completed
+              </span>
+            )}
+            <TrophyOutlined className="text-amber-400 text-lg" />
+          </div>
+        }>
+        {completionLoading ? (
+          <Skeleton active paragraph={{ rows: 8 }} />
+        ) : (
+          <Table<TopLearner>
+            dataSource={completion?.topLearners ?? []}
+            rowKey="id"
+            size="small"
+            pagination={{ pageSize: 10, showSizeChanger: false }}
+            columns={[
+              {
+                title: "#",
+                key: "rank",
+                width: 48,
+                render: (_: unknown, __: TopLearner, index: number) => (
+                  <span className="text-slate-400 font-medium">
+                    {index + 1}
+                  </span>
+                )
+              },
+              {
+                title: "Fellow",
+                key: "fellow",
+                render: (_: unknown, r: TopLearner) => (
+                  <div className="flex items-center gap-2">
+                    <Avatar src={r.profileimageurl} size={28}>
+                      {r.fullname[0]}
+                    </Avatar>
+                    <span className="font-medium">{r.fullname}</span>
+                  </div>
+                )
+              },
+              {
+                title: "Activities Done",
+                key: "activities",
+                align: "center" as const,
+                render: (_: unknown, r: TopLearner) => (
+                  <span className="text-slate-600">
+                    {r.activitiesDone} / {r.totalActivities}
+                  </span>
+                )
+              },
+              {
+                title: "Completion",
+                dataIndex: "completionPct",
+                key: "completionPct",
+                align: "center" as const,
+                sorter: (a: TopLearner, b: TopLearner) =>
+                  a.completionPct - b.completionPct,
+                render: (v: number) => (
+                  <Tag
+                    color={v >= 60 ? "green" : v >= 30 ? "orange" : "default"}
+                    className="font-semibold">
+                    {v}%
+                  </Tag>
+                )
+              },
+              {
+                title: "Last Active",
+                dataIndex: "lastcourseaccess",
+                key: "lastcourseaccess",
+                align: "right" as const,
+                render: (ts: number) =>
+                  ts
+                    ? new Date(ts * 1000).toLocaleDateString("en-GB", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric"
+                      })
+                    : "Never"
+              }
+            ]}
+          />
+        )}
+      </Card>
     </div>
   );
 }

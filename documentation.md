@@ -43,7 +43,39 @@ The LMS course (ID 6) has 7 modules in sections 1–7 of `core_course_get_conten
 | 6 | Communication and Growth |
 | 7 | Leadership and People Engagement |
 
-Each module section contains `subsection` modname activities. A learner is considered to have **completed a module** when they have finished every `subsection` activity in that section.
+### Flat API → Hierarchy: How to parse `core_course_get_contents`
+
+The API returns a **flat array** of section objects. Two types exist, distinguished by the `component` field:
+
+| `component` value | Type |
+|---|---|
+| `null` | Top-level section — Module 1–7, Course Introduction, Course Summary, Mentorship Track |
+| `"mod_subsection"` | Lesson section — the actual content for one lesson (Overview, Video, Slides, Further Resources, Quiz). Child of a top-level section. |
+
+**Parent → child linking:** Each top-level module section contains `modname: "subsection"` modules in its `modules[]`. These are **navigation pointers only** (`completion: 0` — not tracked). They link to the real lesson section via:
+
+- `subsection_module.instance` ↔ `lesson_section.itemid`
+- `subsection_module.customdata` (JSON string) `.sectionid` ↔ `lesson_section.id`
+
+**Tracked activities** live inside the lesson sections (`component: "mod_subsection"`), not in the top-level module:
+
+| Activity | `modname` | `completion` |
+|---|---|---|
+| Overview | `label` | `1` (manual) |
+| Video | `label` | `1` (manual) |
+| Slides | `resource` | `2` (auto on view) |
+| Further Resources | `folder` | `2` (auto on view) |
+| Quiz | `quiz` | `2` (auto on submit) |
+
+A learner is considered to have **completed a module** when they have finished all tracked activities (`completion > 0`) across every lesson section linked to that module.
+
+**`getCachedCourseModules()` follows this algorithm:**
+1. Filter visible sections into `topLevel` (`component !== "mod_subsection"`, `section > 0`) and `lessonSections` (`component === "mod_subsection"`)
+2. Build `instance → parentIdx` map from each top-level section's `subsection` modules
+3. For each lesson section, look up its parent via `itemid`, collect its tracked activity IDs (`completion > 0`)
+4. Return `{ moduleId, moduleName, activityIds[] }` per top-level module
+
+**Mentorship Track** (`section: 9`) has `modules: []` — it is empty and produces no tracked activities. All lessons belong to Module 1–7 via the `itemid`/`instance` link.
 
 ---
 
@@ -166,7 +198,7 @@ Shares all data with mentorship route via `sharedData` cache. The full `fellows`
 | Cached getter | Data | Cost (cold) |
 |---|---|---|
 | `getCachedStudents()` | All enrolled students | ~5 paginated Moodle calls |
-| `getCachedCourseModules()` | Course sections → activityIds | 1 Moodle call |
+| `getCachedCourseModules()` | Module 1–7 → tracked `activityIds[]` (from lesson sections via `itemid`/`instance` link) | 1 Moodle call |
 | `getCachedRawCompletions()` | `userId → completedCmids[]` | ~5 000 batched calls @ 50 concurrent |
 | `getCachedGradeItems()` | `userId → GradeItem[]` | ~5 000 batched calls @ 100 concurrent |
 | `getCachedForumData()` | Posts/replies per module + per-user discussion count | N forums × paginated discussion calls |
@@ -260,7 +292,7 @@ Returns `{ fellows: FellowSummary[] }`. Paginates `core_enrol_get_enrolled_users
 
 ### `/api/course/contents` — Phase 2 complete
 
-Returns `{ sections: [...] }` with subsections, forums, labels per section.
+Returns `{ sections: CourseSection[] }`. Each section includes `subSections[]` populated by linking lesson sections (`component: "mod_subsection"`) to their parent module via `itemid` ↔ subsection module `instance`. See **Course Structure → Flat API → Hierarchy** above for the full parsing algorithm.
 
 ---
 

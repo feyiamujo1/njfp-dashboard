@@ -17,12 +17,12 @@ export default function FellowModuleProgress({ data }: Props) {
 
         return (
           <div key={m.moduleId}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-slate-700">
+            <div className="flex items-center justify-between mb-1 gap-2">
+              <span className="text-sm font-medium text-slate-700 min-w-0 truncate">
                 <span className="text-slate-400 mr-1.5">M{m.moduleId}</span>
                 {m.moduleName}
               </span>
-              <span className="text-sm font-semibold" style={{ color }}>
+              <span className="text-sm font-semibold shrink-0" style={{ color }}>
                 {pct}%
               </span>
             </div>

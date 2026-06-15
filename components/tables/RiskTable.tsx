@@ -66,13 +66,6 @@ export default function RiskTable({ data, loading }: Props) {
       sorter: (a, b) => b.completionPct - a.completionPct,
     },
     {
-      title: "Quiz Score",
-      dataIndex: "avgQuizScore",
-      key: "quiz",
-      render: (v: number) => `${v}%`,
-      sorter: (a, b) => b.avgQuizScore - a.avgQuizScore,
-    },
-    {
       title: "Risk Level",
       dataIndex: "riskLevel",
       key: "risk",

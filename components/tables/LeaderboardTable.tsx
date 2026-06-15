@@ -52,24 +52,6 @@ export default function LeaderboardTable({ data, loading }: Props) {
       ),
       sorter: (a, b) => b.engagementScore - a.engagementScore,
     },
-    {
-      title: "Forum Posts",
-      dataIndex: "forumPosts",
-      key: "forum",
-      sorter: (a, b) => b.forumPosts - a.forumPosts,
-    },
-    {
-      title: "Assignments",
-      key: "assignments",
-      render: (_, r) => `${r.assignmentsSubmitted}/${r.assignmentsTotal}`,
-    },
-    {
-      title: "Quiz Avg",
-      dataIndex: "avgQuizScore",
-      key: "quiz",
-      render: (v: number) => `${v}%`,
-      sorter: (a, b) => b.avgQuizScore - a.avgQuizScore,
-    },
   ];
 
   return (

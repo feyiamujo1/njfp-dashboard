@@ -1,16 +1,8 @@
 import { NextResponse } from "next/server";
 import moment from "moment";
-import {
-  getCachedStudents,
-  getCachedCourseModules,
-  getCachedRawCompletions,
-  getCachedGradeItems,
-  getCachedAssignmentData,
-  makeCompletedByUser,
-  type CachedStudent,
-} from "@/lib/server/sharedData";
+import { getCachedStudents, type CachedStudent } from "@/lib/server/sharedData";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 function computeWeeklyActive(students: CachedStudent[]) {
   return Array.from({ length: 8 }, (_, i) => {
@@ -26,113 +18,50 @@ function computeWeeklyActive(students: CachedStudent[]) {
   });
 }
 
-function classifyRisk(s: CachedStudent, completionPct: number) {
+// Time-based only — completion data comes from the separate /completion endpoint.
+// active   : accessed in the last 7 days
+// at_risk  : accessed 7–30 days ago (disengaging but not gone)
+// inactive : no access in 30+ days, or never logged in
+function classifyRisk(s: CachedStudent): "active" | "at_risk" | "inactive" {
   if (!s.lastcourseaccess) return "inactive";
   const daysSince = (Date.now() / 1000 - s.lastcourseaccess) / 86400;
-  if (daysSince > 14) return "inactive";
-  if (daysSince > 7 || completionPct < 25) return "at_risk";
-  return "active";
+  if (daysSince <= 7) return "active";
+  if (daysSince <= 30) return "at_risk";
+  return "inactive";
 }
 
 export async function GET() {
   try {
-    const [students, courseModules, rawCompletions, gradeItemsByUser, assignData] =
-      await Promise.all([
-        getCachedStudents(),
-        getCachedCourseModules(),
-        getCachedRawCompletions(),
-        getCachedGradeItems(),
-        getCachedAssignmentData(),
-      ]);
-
+    const students = await getCachedStudents();
     const total = students.length;
-    const completedByUser = makeCompletedByUser(rawCompletions);
-    const totalActivities = courseModules.reduce((s, m) => s + m.activityIds.length, 0);
-    const halfModules = Math.ceil(courseModules.length / 2);
     const now = Date.now() / 1000;
 
-    // ── Module completion ──────────────────────────────────────────────────────
-    const moduleCompletion = courseModules.map((mod) => {
-      const completedCount = students.filter((s) => {
-        const done = completedByUser.get(s.id) ?? new Set<number>();
-        return mod.activityIds.every((id) => done.has(id));
-      }).length;
-      return {
-        moduleId: mod.moduleId,
-        moduleName: mod.moduleName,
-        completionPct: total > 0 ? Math.round((completedCount / total) * 100) : 0,
-        completedCount,
-        totalFellows: total,
-      };
-    });
-
-    // ── Scalar KPIs ────────────────────────────────────────────────────────────
     const activeFellows = students.filter(
       (s) => s.lastcourseaccess && now - s.lastcourseaccess < 7 * 86400
     ).length;
 
-    let courseCompletedCount = 0;
+    const neverStarted = students.filter((s) => !s.lastcourseaccess).length;
+
     let activeCount = 0, atRiskCount = 0, inactiveCount = 0;
-
     students.forEach((s) => {
-      const done = completedByUser.get(s.id) ?? new Set<number>();
-      const doneCount = courseModules.reduce(
-        (sum, m) => sum + m.activityIds.filter((id) => done.has(id)).length,
-        0
-      );
-      const completionPct = totalActivities > 0 ? (doneCount / totalActivities) * 100 : 0;
-      const modulesFinished = courseModules.filter(
-        (m) => m.activityIds.length > 0 && m.activityIds.every((id) => done.has(id))
-      ).length;
-
-      if (modulesFinished >= halfModules) courseCompletedCount++;
-
-      const risk = classifyRisk(s, completionPct);
+      const risk = classifyRisk(s);
       if (risk === "active") activeCount++;
       else if (risk === "at_risk") atRiskCount++;
       else inactiveCount++;
     });
 
-    // ── Avg quiz score from shared grade items ─────────────────────────────────
-    const validQuizAvgs = students
-      .map((s) => {
-        const quizItems = (gradeItemsByUser[String(s.id)] ?? []).filter(
-          (g) => g.itemmodule === "quiz" && g.graderaw !== null && g.grademax > 0
-        );
-        if (quizItems.length === 0) return null;
-        return Math.round(
-          quizItems.reduce((sum, g) => sum + (g.graderaw! / g.grademax) * 100, 0) /
-            quizItems.length
-        );
-      })
-      .filter((v): v is number => v !== null);
-
-    const avgQuizScore =
-      validQuizAvgs.length > 0
-        ? Math.round(validQuizAvgs.reduce((a, b) => a + b, 0) / validQuizAvgs.length)
-        : 0;
-
-    // ── Assignment completion rate ─────────────────────────────────────────────
-    const totalSubs = Object.values(assignData.submissionsByAssignment).reduce(
-      (sum, subs) => sum + subs.filter((s) => s.status === "submitted").length,
-      0
-    );
-    const assignmentCompletionRate =
-      total > 0 && assignData.assignments.length > 0
-        ? Math.round((totalSubs / (total * assignData.assignments.length)) * 100)
-        : 0;
+    console.log("[overview/fast]", {
+      total,
+      activeFellows,
+      neverStarted,
+      activeCount,
+      atRiskCount,
+      inactiveCount,
+    });
 
     return NextResponse.json({
-      stats: {
-        totalFellows: total,
-        activeFellows,
-        completionRate: total > 0 ? Math.round((courseCompletedCount / total) * 100) : 0,
-        avgQuizScore,
-        assignmentCompletionRate,
-        atRiskCount,
-      },
+      stats: { totalFellows: total, activeFellows, atRiskCount, neverStarted },
       weeklyActive: computeWeeklyActive(students),
-      moduleCompletion,
       riskDistribution: { active: activeCount, atRisk: atRiskCount, inactive: inactiveCount },
     });
   } catch (err) {

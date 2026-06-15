@@ -7,14 +7,15 @@ export interface Fellow {
   lastaccess: number;
   lastcourseaccess: number;
   profileimageurl: string;
+  gender: string | null;
+  state: string | null;
+  lga: string | null;
+  region: string | null;
 }
 
 export interface FellowSummary extends Fellow {
   completionPct: number;
   avgQuizScore: number;
-  assignmentsSubmitted: number;
-  assignmentsTotal: number;
-  forumPosts: number;
   engagementScore: number;
   riskLevel: RiskLevel;
   daysSinceActive: number;
@@ -40,90 +41,109 @@ export interface QuizStat {
 export interface OverviewStats {
   totalFellows: number;
   activeFellows: number;
-  completionRate: number;
-  avgQuizScore: number;
-  assignmentCompletionRate: number;
   atRiskCount: number;
+  neverStarted: number;
 }
 
-export interface AssignmentSummary {
+export interface TopLearner {
   id: number;
-  name: string;
-  moduleId: number;
-  moduleName: string;
-  submitted: boolean;
-  submittedAt?: number;
-  grade?: number;
+  fullname: string;
+  email: string;
+  profileimageurl: string;
+  lastcourseaccess: number;
+  activitiesDone: number;
+  totalActivities: number;
+  completionPct: number;
+}
+
+/** Returned by the separate /api/dashboard/overview/completion route (slow, cached). */
+export interface OverviewCompletionStats {
+  completionRate: number;
+  avgCompletionPct: number;
+  completedFellows: number;
+  moduleCompletion: ModuleProgress[];
+  topLearners: TopLearner[];
 }
 
 export interface ActivityEvent {
   id: number;
   description: string;
   timestamp: number;
-  type: "quiz" | "assignment" | "forum" | "login" | "completion";
+  type: "quiz" | "login" | "completion";
 }
 
 export interface FellowDetail extends FellowSummary {
   moduleProgress: ModuleProgress[];
   quizStats: QuizStat[];
-  assignments: AssignmentSummary[];
-  activityTimeline: ActivityEvent[];
 }
 
+/** Returned by the separate /api/fellows/[id]/quiz route (slow, per-user cached). */
+export interface FellowQuizDetail {
+  avgQuizScore: number;
+  engagementScore: number;
+  quizStats: QuizStat[];
+}
+
+/** Fast path — students cache only. */
 export interface EngagementStats {
   dau: number;
   wau: number;
   mau: number;
+  weeklyActivity: { week: string; ts: number; logins: number; interactions: number }[];
+  monthlyActivity: { month: string; ts: number; logins: number; interactions: number }[];
+  heatmapRaw: number[];
+}
+
+export interface ActivityDemBreakdown {
+  label: string;
+  active: number;
+  atRisk: number;
+  inactive: number;
+  total: number;
+}
+
+/** Slow path — completion + fellow summaries (Risk + Performance + module views). */
+export interface LearnerActivityStats {
   contentViews: number;
-  weeklyActivity: { week: string; logins: number; interactions: number }[];
-  heatmap: { day: number; hour: number; count: number }[];
   moduleViews: { moduleId: number; moduleName: string; views: number }[];
-}
-
-export interface PerformanceStats {
-  avgQuizScore: number;
-  submissionRate: number;
-  passRate: number;
-  failRate: number;
-  quizByModule: QuizStat[];
-  assignmentByModule: {
-    moduleId: number;
-    moduleName: string;
-    submitted: number;
-    notSubmitted: number;
-  }[];
+  risk: {
+    inactiveOver7Days: number;
+    inactiveOver14Days: number;
+    notStartedCount: number;
+    distribution: { active: number; atRisk: number; inactive: number };
+    fellows: FellowSummary[];
+  };
   topLearners: FellowSummary[];
+  activityByGender: ActivityDemBreakdown[];
+  activityByRegion: ActivityDemBreakdown[];
+  activityByState: ActivityDemBreakdown[];
 }
 
-export interface MentorshipStats {
-  webinarAttendance: number | null; // NATVIEW — null until external API wired
-  mentorSessions: number | null;    // NATVIEW — null until external API wired
-  podParticipation: number | null;  // NATVIEW — null until external API wired
-  forumPosts: number;
-  forumByModule: {
-    moduleId: number;
-    moduleName: string;
-    posts: number;
-    replies: number;
-  }[];
-  leaderboard: FellowSummary[];
-}
-
-export interface RiskStats {
-  inactiveOver7Days: number;
-  inactiveOver14Days: number;
-  lowQuizScore: number;
-  noMentorshipEngagement: number;
-  distribution: { active: number; atRisk: number; inactive: number };
-  fellows: FellowSummary[];
-}
-
+/** Fast path — students cache only. */
 export interface ProgressStats {
   totalEnrolled: number;
+}
+
+export interface DemCompletion {
+  label: string;
+  total: number;
+  started: number;
+  startedPct: number;
+  midway: number;
+  midwayPct: number;
+  completed: number;
+  completionPct: number;
+}
+
+/** Slow path — completion cache (~30-min TTL). */
+export interface ProgressCompletionStats {
   startedPct: number;
   completedPct: number;
   avgCompletionRate: number;
   moduleProgress: ModuleProgress[];
   funnel: { stage: string; count: number; pct: number }[];
   dropOff: { moduleId: number; moduleName: string; activePct: number }[];
+  completionByGender: DemCompletion[];
+  completionByRegion: DemCompletion[];
+  completionByState: DemCompletion[];
 }

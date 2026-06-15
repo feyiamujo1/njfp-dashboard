@@ -28,7 +28,14 @@ export default function ActivityLineChart({ data, height = 300 }: Props) {
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-        <XAxis dataKey="week" tick={{ fontSize: 12 }} />
+        <XAxis
+          dataKey="week"
+          tick={{ fontSize: 11 }}
+          angle={-35}
+          textAnchor="end"
+          height={50}
+          interval="preserveStartEnd"
+        />
         <YAxis tick={{ fontSize: 12 }} />
         <Tooltip />
         <Legend />

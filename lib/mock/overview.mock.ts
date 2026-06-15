@@ -3,10 +3,8 @@ import type { OverviewStats, ModuleProgress } from "@/lib/types";
 export const overviewStatsMock: OverviewStats = {
   totalFellows: 5000,
   activeFellows: 2900,
-  completionRate: 72,
-  avgQuizScore: 68,
-  assignmentCompletionRate: 74,
   atRiskCount: 900,
+  neverStarted: 450,
 };
 
 export const weeklyActiveMock = [

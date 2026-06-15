@@ -1,10 +1,10 @@
 /**
  * Shared server-side data cache.
  *
- * Expensive Moodle calls (enrolled students, per-user completion, per-user
- * grade items, forum discussions) are wrapped in unstable_cache so the
- * processed result is stored for 5 minutes.  Multiple route handlers that
- * open within the same cache window pay the cost only once.
+ * Expensive Moodle calls (enrolled students, per-user completion, forum
+ * discussions, quiz details) are wrapped in unstable_cache so the processed
+ * result is stored for 5 minutes.  Multiple route handlers that open within
+ * the same cache window pay the cost only once.
  *
  * Return types are plain JSON-serialisable objects — no Map/Set.
  * Use the hydration helpers below to rebuild Maps inside route handlers.
@@ -24,6 +24,10 @@ export interface CachedStudent {
   lastaccess: number;
   lastcourseaccess: number;
   profileimageurl: string;
+  gender: string | null;
+  state: string | null;
+  lga: string | null;
+  region: string | null;
 }
 
 export interface CachedCourseModule {
@@ -32,40 +36,10 @@ export interface CachedCourseModule {
   activityIds: number[];
 }
 
-export interface CachedGradeItem {
-  itemmodule: string; // "quiz" | "assign" | ...
-  cmid: number;
-  graderaw: number | null;
-  grademax: number;
-}
-
-export interface CachedForumData {
-  /** section → { posts, replies } */
-  bySection: Record<string, { posts: number; replies: number }>;
-  /** userId → discussions started count */
-  userDiscussionCount: Record<string, number>;
-  /** userId → latest discussion Unix timestamp (for activity timeline) */
-  userLatestDiscussion: Record<string, number>;
-  totalPosts: number;
-  totalReplies: number;
-}
-
-export interface CachedAssignment {
-  id: number;
-  name: string;
-  cmid: number;
-}
-
-export interface CachedSubmission {
-  userid: number;
-  status: string;
-  timemodified: number;
-}
-
-export interface CachedAssignmentData {
-  assignments: CachedAssignment[];
-  /** assignmentId (string) → submissions */
-  submissionsByAssignment: Record<string, CachedSubmission[]>;
+/** Quiz instance → max grade (for percentage calculation) */
+export interface CachedQuizDetail {
+  quizId: number;
+  gradeMax: number;
 }
 
 // ─── Internal interfaces (not exported) ───────────────────────────────────────
@@ -78,6 +52,7 @@ interface MoodleUser {
   lastcourseaccess: number;
   profileimageurl: string;
   roles: Array<{ shortname: string }>;
+  customfields?: Array<{ shortname: string; value: string }>;
 }
 
 interface MoodleSection {
@@ -85,51 +60,13 @@ interface MoodleSection {
   name: string;
   visible: 1 | 0;
   section: number;
-  modules: Array<{ id: number; modname: string; completion: number }>;
+  component?: string | null;
+  itemid?: number | null;
+  modules: Array<{ id: number; instance: number; modname: string; completion: number }>;
 }
 
 interface MoodleCompletionStatus {
   statuses: Array<{ cmid: number; state: number; tracking: number }>;
-}
-
-interface MoodleUserGrades {
-  usergrades: Array<{
-    userid: number;
-    gradeitems: Array<{
-      itemmodule: string;
-      cmid: number;
-      graderaw: number | null;
-      grademax: number;
-    }>;
-  }>;
-}
-
-interface MoodleForum {
-  id: number;
-  cmid: number;
-  name: string;
-  course: number;
-}
-
-interface MoodleDiscussion {
-  userid: number;
-  numreplies: number;
-  timemodified: number;
-}
-
-interface MoodleAssignmentList {
-  courses: Array<{ assignments: Array<{ id: number; name: string; cmid: number }> }>;
-}
-
-interface MoodleSubmissionsResponse {
-  assignments: Array<{
-    assignmentid: number;
-    submissions: Array<{ userid: number; status: string; timemodified: number }>;
-  }>;
-}
-
-interface MoodleDiscussionResult {
-  discussions?: MoodleDiscussion[];
 }
 
 // ─── Shared utilities ─────────────────────────────────────────────────────────
@@ -150,48 +87,82 @@ export async function batchProcess<In, Out>(
 // ─── Raw fetchers (called inside unstable_cache wrappers) ─────────────────────
 
 async function _fetchAllStudents(): Promise<CachedStudent[]> {
-  const all: MoodleUser[] = [];
-  let offset = 0;
-  const perPage = 1000;
-  while (true) {
-    const batch = await moodleCall<MoodleUser[]>("core_enrol_get_enrolled_users", {
-      courseid: COURSE_ID,
-      "options[0][name]": "limitfrom",
-      "options[0][value]": offset,
-      "options[1][name]": "limitnumber",
-      "options[1][value]": perPage,
+  const batch = await moodleCall<MoodleUser[]>("core_enrol_get_enrolled_users", {
+    courseid: COURSE_ID,
+    // Limit flat profile fields to reduce response payload.
+    // roles and customfields are relational — Moodle includes them regardless
+    // of this option, so omitting them here avoids silently dropping the data.
+    "options[0][name]": "userfields",
+    "options[0][value]":
+      "id,fullname,email,lastaccess,lastcourseaccess,profileimageurl,roles,customfields",
+  });
+  return (batch ?? [])
+    .filter((u) => u.roles.some((r) => r.shortname === "student"))
+    .map(({ id, fullname, email, lastaccess, lastcourseaccess, profileimageurl, customfields }) => {
+      const cf = (customfields ?? []).reduce<Record<string, string>>((acc, f) => {
+        acc[f.shortname] = f.value;
+        return acc;
+      }, {});
+      return {
+        id,
+        fullname,
+        email,
+        lastaccess,
+        lastcourseaccess,
+        profileimageurl,
+        gender: cf.gender ?? null,
+        state: cf.state ?? null,
+        lga: cf.lga ?? null,
+        region: cf.region ?? null,
+      };
     });
-    all.push(...batch.filter((u) => u.roles.some((r) => r.shortname === "student")));
-    if (batch.length < perPage) break;
-    offset += perPage;
-  }
-  return all.map(({ id, fullname, email, lastaccess, lastcourseaccess, profileimageurl }) => ({
-    id,
-    fullname,
-    email,
-    lastaccess,
-    lastcourseaccess,
-    profileimageurl,
-  }));
 }
 
 async function _fetchCourseModules(): Promise<CachedCourseModule[]> {
   const sections = await moodleCall<MoodleSection[]>("core_course_get_contents", {
     courseid: COURSE_ID,
   });
-  return sections
-    .filter((s) => s.visible === 1 && s.section > 0)
-    .map((s) => ({
+
+  const visible = sections.filter((s) => s.visible === 1);
+
+  // Split into top-level sections (component: null) and lesson sections (component: "mod_subsection").
+  // The subsection nav modules inside top-level sections have completion: 0 and are NOT tracked.
+  // The actual tracked activities (label, resource, folder, quiz) live inside the lesson sections.
+  const topLevel = visible.filter((s) => s.component !== "mod_subsection" && s.section > 0);
+  const lessonSections = visible.filter((s) => s.component === "mod_subsection");
+
+  // Map: subsection module instance → parent section index (within topLevel)
+  const instanceToParent = new Map<number, number>();
+  topLevel.forEach((parent, idx) => {
+    parent.modules
+      .filter((m) => m.modname === "subsection")
+      .forEach((m) => instanceToParent.set(m.instance, idx));
+  });
+
+  // Build activityIds per parent module using lesson section tracked activities
+  const activityIdsByParent: number[][] = topLevel.map(() => []);
+  for (const lesson of lessonSections) {
+    if (!lesson.itemid) continue;
+    const parentIdx = instanceToParent.get(lesson.itemid);
+    if (parentIdx === undefined) continue;
+    const tracked = lesson.modules
+      .filter((m) => m.completion > 0)
+      .map((m) => m.id);
+    activityIdsByParent[parentIdx].push(...tracked);
+  }
+
+  return topLevel
+    .map((s, idx) => ({
       moduleId: s.section,
       moduleName: s.name,
-      activityIds: s.modules
-        .filter((m) => m.modname === "subsection" && m.completion > 0)
-        .map((m) => m.id),
+      activityIds: activityIdsByParent[idx],
     }))
     .filter((m) => m.activityIds.length > 0);
 }
 
-async function _fetchUserCompletion(userId: number): Promise<MoodleCompletionStatus> {
+async function _fetchUserCompletion(
+  userId: number
+): Promise<MoodleCompletionStatus> {
   try {
     return await moodleCall<MoodleCompletionStatus>(
       "core_completion_get_activities_completion_status",
@@ -204,166 +175,43 @@ async function _fetchUserCompletion(userId: number): Promise<MoodleCompletionSta
 
 async function _fetchRawCompletions(): Promise<Record<string, number[]>> {
   const students = await getCachedStudents();
+
+  // Students who have never accessed the course have zero completions by
+  // definition — skip them entirely to avoid thousands of wasted API calls.
+  const everActive = students.filter((s) => s.lastcourseaccess > 0);
+
+  console.log(
+    `[completions] fetching for ${everActive.length} / ${students.length} students (${students.length - everActive.length} never active, skipped)`
+  );
+
   const completions = await batchProcess(
-    students.map((s) => s.id),
+    everActive.map((s) => s.id),
     _fetchUserCompletion,
     50
   );
+
   const result: Record<string, number[]> = {};
-  students.forEach((s, i) => {
+  everActive.forEach((s, i) => {
     const done: number[] = [];
     (completions[i]?.statuses ?? []).forEach(({ cmid, state, tracking }) => {
       if (tracking > 0 && state >= 1) done.push(cmid);
     });
     result[String(s.id)] = done;
   });
+  // Never-active students are intentionally absent — makeCompletedByUser
+  // returns new Set() for any missing key, so callers see them as 0% complete.
   return result;
 }
 
-async function _fetchUserGradeItems(userId: number): Promise<CachedGradeItem[]> {
+async function _fetchQuizDetails(): Promise<CachedQuizDetail[]> {
   try {
-    const res = await moodleCall<MoodleUserGrades>("gradereport_user_get_grade_items", {
-      courseid: COURSE_ID,
-      userid: userId,
-    });
-    return (
-      res.usergrades?.[0]?.gradeitems?.map(({ itemmodule, cmid, graderaw, grademax }) => ({
-        itemmodule,
-        cmid,
-        graderaw,
-        grademax,
-      })) ?? []
-    );
-  } catch {
-    return [];
-  }
-}
-
-async function _fetchAllGradeItems(): Promise<Record<string, CachedGradeItem[]>> {
-  const students = await getCachedStudents();
-  const itemsByUser = await batchProcess(
-    students.map((s) => s.id),
-    _fetchUserGradeItems,
-    100
-  );
-  const result: Record<string, CachedGradeItem[]> = {};
-  students.forEach((s, i) => {
-    result[String(s.id)] = itemsByUser[i] ?? [];
-  });
-  return result;
-}
-
-async function _fetchForumData(): Promise<CachedForumData> {
-  try {
-    const [forums, sections] = await Promise.all([
-      moodleCall<MoodleForum[]>("mod_forum_get_forums_by_courses", {
-        "courseids[0]": COURSE_ID,
-      }),
-      moodleCall<MoodleSection[]>("core_course_get_contents", { courseid: COURSE_ID }),
-    ]);
-
-    // Build cmid → section map
-    const cmidToSection = new Map<number, number>();
-    sections.forEach((s) => s.modules.forEach((m) => cmidToSection.set(m.id, s.section)));
-
-    const bySection: Record<string, { posts: number; replies: number }> = {};
-    const userDiscussionCount: Record<string, number> = {};
-    const userLatestDiscussion: Record<string, number> = {};
-
-    // Fetch discussions per forum (paginated, capped at 2 000 per forum)
-    await Promise.all(
-      forums.map(async (forum) => {
-        const section = cmidToSection.get(forum.cmid);
-        if (!section || section === 0) return;
-
-        let page = 0;
-        const perpage = 200;
-        let forumPosts = 0;
-        let forumReplies = 0;
-
-        while (true) {
-          let result: MoodleDiscussionResult = {};
-          try {
-            result = await moodleCall<MoodleDiscussionResult>(
-              "mod_forum_get_forum_discussions",
-              { forumid: forum.id, page, perpage }
-            );
-          } catch {
-            break;
-          }
-
-          const discussions = result.discussions ?? [];
-          forumPosts += discussions.length;
-          discussions.forEach((d) => {
-            forumReplies += d.numreplies ?? 0;
-            const key = String(d.userid);
-            userDiscussionCount[key] = (userDiscussionCount[key] ?? 0) + 1;
-            if (!userLatestDiscussion[key] || d.timemodified > userLatestDiscussion[key]) {
-              userLatestDiscussion[key] = d.timemodified;
-            }
-          });
-
-          if (discussions.length < perpage) break;
-          page++;
-          if (page >= 10) break; // cap: 10 pages × 200 = 2 000 discussions per forum
-        }
-
-        const key = String(section);
-        const prev = bySection[key] ?? { posts: 0, replies: 0 };
-        bySection[key] = {
-          posts: prev.posts + forumPosts,
-          replies: prev.replies + forumReplies,
-        };
-      })
-    );
-
-    const totalPosts = Object.values(bySection).reduce((s, v) => s + v.posts, 0);
-    const totalReplies = Object.values(bySection).reduce((s, v) => s + v.replies, 0);
-
-    return { bySection, userDiscussionCount, userLatestDiscussion, totalPosts, totalReplies };
-  } catch {
-    return {
-      bySection: {},
-      userDiscussionCount: {},
-      userLatestDiscussion: {},
-      totalPosts: 0,
-      totalReplies: 0,
-    };
-  }
-}
-
-async function _fetchAssignmentData(): Promise<CachedAssignmentData> {
-  try {
-    const { courses } = await moodleCall<MoodleAssignmentList>(
-      "mod_assign_get_assignments",
+    const res = await moodleCall<{ quizzes: Array<{ id: number; grade: number }> }>(
+      "mod_quiz_get_quizzes_by_courses",
       { "courseids[0]": COURSE_ID }
     );
-    const assignments = courses[0]?.assignments ?? [];
-    if (assignments.length === 0) return { assignments: [], submissionsByAssignment: {} };
-
-    const idParams: Record<string, string | number> = {};
-    assignments.forEach((a, i) => { idParams[`assignmentids[${i}]`] = a.id; });
-
-    const { assignments: subs } = await moodleCall<MoodleSubmissionsResponse>(
-      "mod_assign_get_submissions",
-      idParams
-    );
-
-    const submissionsByAssignment: Record<string, CachedSubmission[]> = {};
-    subs.forEach((a) => {
-      submissionsByAssignment[String(a.assignmentid)] = a.submissions.map((s) => ({
-        userid: s.userid,
-        status: s.status,
-        timemodified: s.timemodified,
-      }));
-    });
-
-    return {
-      assignments: assignments.map(({ id, name, cmid }) => ({ id, name, cmid })),
-      submissionsByAssignment,
-    };
+    return (res.quizzes ?? []).map((q) => ({ quizId: q.id, gradeMax: q.grade }));
   } catch {
-    return { assignments: [], submissionsByAssignment: {} };
+    return [];
   }
 }
 
@@ -385,27 +233,70 @@ export const getCachedCourseModules = unstable_cache(
 export const getCachedRawCompletions = unstable_cache(
   _fetchRawCompletions,
   [`completions-${COURSE_ID}`],
+  { revalidate: 3600 } // 1-hour TTL — completions change slowly; cold fetch takes ~8 min
+);
+
+/** Quiz details: instance id → gradeMax (from mod_quiz_get_quizzes_by_courses) */
+export const getCachedQuizDetails = unstable_cache(
+  _fetchQuizDetails,
+  [`quiz-details-${COURSE_ID}`],
   { revalidate: 300 }
 );
 
-/** userId (string) → grade items array */
-export const getCachedGradeItems = unstable_cache(
-  _fetchAllGradeItems,
-  [`grade-items-${COURSE_ID}`],
-  { revalidate: 300 }
-);
+// ─── Quiz instances (shared between list route and per-user quiz route) ────────
 
-/** Forum posts/replies per module section + per-user discussion count */
-export const getCachedForumData = unstable_cache(
-  _fetchForumData,
-  [`forum-data-${COURSE_ID}`],
-  { revalidate: 300 }
-);
+export interface QuizInstance {
+  quizId: number;
+  moduleSection: number;
+  moduleName: string;
+}
 
-/** All assignments + submissions for the course */
-export const getCachedAssignmentData = unstable_cache(
-  _fetchAssignmentData,
-  [`assignment-data-${COURSE_ID}`],
+async function _fetchQuizInstances(): Promise<QuizInstance[]> {
+  const sections = await moodleCall<
+    Array<{
+      section: number;
+      name: string;
+      visible: 1 | 0;
+      component?: string | null;
+      itemid?: number | null;
+      modules: Array<{ id: number; instance: number; modname: string }>;
+    }>
+  >("core_course_get_contents", { courseid: COURSE_ID });
+
+  const instanceToModule = new Map<number, { section: number; sectionName: string }>();
+  sections
+    .filter((s) => s.component !== "mod_subsection")
+    .forEach((s) =>
+      s.modules
+        .filter((m) => m.modname === "subsection")
+        .forEach((m) =>
+          instanceToModule.set(m.instance, { section: s.section, sectionName: s.name })
+        )
+    );
+
+  const quizInstances: QuizInstance[] = [];
+  sections
+    .filter((s) => s.component === "mod_subsection" && !!s.itemid)
+    .forEach((s) => {
+      const parent = instanceToModule.get(s.itemid!);
+      if (!parent) return;
+      s.modules
+        .filter((m) => m.modname === "quiz")
+        .forEach((m) =>
+          quizInstances.push({
+            quizId: m.instance,
+            moduleSection: parent.section,
+            moduleName: parent.sectionName,
+          })
+        );
+    });
+
+  return quizInstances;
+}
+
+export const getCachedQuizInstances = unstable_cache(
+  _fetchQuizInstances,
+  [`quiz-instances-${COURSE_ID}`],
   { revalidate: 300 }
 );
 
@@ -424,55 +315,32 @@ export function makeCompletedByUser(
  * Build the full FellowSummary array for all enrolled students.
  * All underlying data is served from cache — subsequent calls within the
  * 5-minute window are CPU-only (no Moodle network I/O).
+ *
+ * Note: avgQuizScore is 0 for all summaries because mod_quiz_get_user_best_grade
+ * requires one call per (user × quiz) — infeasible at bulk scale. Real quiz
+ * scores are only computed on the individual learner detail page.
  */
 export async function buildAllFellowSummaries(): Promise<FellowSummary[]> {
-  const [students, courseModules, rawCompletions, gradeItemsByUser, forumData, assignData] =
-    await Promise.all([
-      getCachedStudents(),
-      getCachedCourseModules(),
-      getCachedRawCompletions(),
-      getCachedGradeItems(),
-      getCachedForumData(),
-      getCachedAssignmentData(),
-    ]);
+  const [students, courseModules, rawCompletions] = await Promise.all([
+    getCachedStudents(),
+    getCachedCourseModules(),
+    getCachedRawCompletions(),
+  ]);
 
   const completedByUser = makeCompletedByUser(rawCompletions);
   const totalActivities = courseModules.reduce((s, m) => s + m.activityIds.length, 0);
 
-  return students.map((s) => {
+  return students.map(s => {
     const done = completedByUser.get(s.id) ?? new Set<number>();
 
     const doneCount = courseModules.reduce(
-      (sum, m) => sum + m.activityIds.filter((id) => done.has(id)).length,
+      (sum, m) => sum + m.activityIds.filter(id => done.has(id)).length,
       0
     );
     const completionPct =
       totalActivities > 0 ? Math.round((doneCount / totalActivities) * 100) : 0;
 
-    const quizItems = (gradeItemsByUser[String(s.id)] ?? []).filter(
-      (g) => g.itemmodule === "quiz" && g.graderaw !== null && g.grademax > 0
-    );
-    const avgQuizScore =
-      quizItems.length > 0
-        ? Math.round(
-            quizItems.reduce((sum, g) => sum + (g.graderaw! / g.grademax) * 100, 0) /
-              quizItems.length
-          )
-        : 0;
-
-    const assignmentsSubmitted = assignData.assignments.reduce((count, a) => {
-      const sub = (assignData.submissionsByAssignment[String(a.id)] ?? []).find(
-        (sub) => sub.userid === s.id && sub.status === "submitted"
-      );
-      return count + (sub ? 1 : 0);
-    }, 0);
-
-    const forumPosts = forumData.userDiscussionCount[String(s.id)] ?? 0;
-
-    const engagementScore = Math.min(
-      100,
-      Math.round(forumPosts * 3 + avgQuizScore * 0.3 + completionPct * 0.2)
-    );
+    const engagementScore = Math.min(100, Math.round(completionPct * 0.7));
 
     const daysSinceActive = s.lastcourseaccess
       ? Math.floor((Date.now() / 1000 - s.lastcourseaccess) / 86400)
@@ -482,16 +350,13 @@ export async function buildAllFellowSummaries(): Promise<FellowSummary[]> {
       !s.lastcourseaccess || daysSinceActive > 14
         ? "inactive"
         : daysSinceActive > 7 || completionPct < 25
-        ? "at_risk"
-        : "active";
+          ? "at_risk"
+          : "active";
 
     return {
       ...s,
       completionPct,
-      avgQuizScore,
-      assignmentsSubmitted,
-      assignmentsTotal: assignData.assignments.length,
-      forumPosts,
+      avgQuizScore: 0,
       engagementScore,
       riskLevel,
       daysSinceActive,

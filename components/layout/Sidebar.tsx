@@ -7,9 +7,6 @@ import {
   DashboardOutlined,
   BookOutlined,
   ThunderboltOutlined,
-  TrophyOutlined,
-  TeamOutlined,
-  AlertOutlined,
   UserOutlined,
   ApartmentOutlined,
 } from "@ant-design/icons";
@@ -25,7 +22,7 @@ const NAV_ITEMS = [
   {
     key: "/dashboard/learners",
     icon: <UserOutlined />,
-    label: <Link href="/dashboard/learners">Learners</Link>,
+    label: <Link href="/dashboard/learners">Fellows</Link>,
   },
   {
     key: "/dashboard/course-structure",
@@ -40,22 +37,7 @@ const NAV_ITEMS = [
   {
     key: "/dashboard/engagement",
     icon: <ThunderboltOutlined />,
-    label: <Link href="/dashboard/engagement">Engagement</Link>,
-  },
-  {
-    key: "/dashboard/assessments",
-    icon: <TrophyOutlined />,
-    label: <Link href="/dashboard/assessments">Learning Performance</Link>,
-  },
-  // {
-  //   key: "/dashboard/mentorship",
-  //   icon: <TeamOutlined />,
-  //   label: <Link href="/dashboard/mentorship">Mentorship</Link>,
-  // },
-  {
-    key: "/dashboard/risk",
-    icon: <AlertOutlined />,
-    label: <Link href="/dashboard/risk">Risk & Intervention</Link>,
+    label: <Link href="/dashboard/engagement">Learner Activity</Link>,
   },
 ];
 
