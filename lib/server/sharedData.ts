@@ -164,9 +164,13 @@ async function _fetchUserCompletion(
   userId: number
 ): Promise<MoodleCompletionStatus> {
   try {
+    // Pass _attempt=3 to skip retries — this is called once per student so
+    // retrying would multiply failed requests by 4× and hammer an already
+    // struggling Moodle server. Errors are handled gracefully by the catch.
     return await moodleCall<MoodleCompletionStatus>(
       "core_completion_get_activities_completion_status",
-      { courseid: COURSE_ID, userid: userId }
+      { courseid: COURSE_ID, userid: userId },
+      3
     );
   } catch {
     return { statuses: [] };
@@ -220,13 +224,13 @@ async function _fetchQuizDetails(): Promise<CachedQuizDetail[]> {
 export const getCachedStudents = unstable_cache(
   _fetchAllStudents,
   [`students-${COURSE_ID}`],
-  { revalidate: 300 }
+  { revalidate: 3600 }
 );
 
 export const getCachedCourseModules = unstable_cache(
   _fetchCourseModules,
   [`course-modules-${COURSE_ID}`],
-  { revalidate: 300 }
+  { revalidate: 3600 }
 );
 
 /** userId (string) → array of completed cmids */
@@ -240,7 +244,7 @@ export const getCachedRawCompletions = unstable_cache(
 export const getCachedQuizDetails = unstable_cache(
   _fetchQuizDetails,
   [`quiz-details-${COURSE_ID}`],
-  { revalidate: 300 }
+  { revalidate: 3600 }
 );
 
 // ─── Quiz instances (shared between list route and per-user quiz route) ────────
@@ -297,7 +301,7 @@ async function _fetchQuizInstances(): Promise<QuizInstance[]> {
 export const getCachedQuizInstances = unstable_cache(
   _fetchQuizInstances,
   [`quiz-instances-${COURSE_ID}`],
-  { revalidate: 300 }
+  { revalidate: 3600 }
 );
 
 // ─── Hydration helpers ────────────────────────────────────────────────────────

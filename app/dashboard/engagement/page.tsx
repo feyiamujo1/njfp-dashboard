@@ -409,9 +409,9 @@ export default function LearnerActivityPage() {
             className="h-full">
             {slowLoading ? (
               <Skeleton active paragraph={{ rows: 6 }} />
-            ) : (
-              <RiskDonutChart data={risk!.distribution} />
-            )}
+            ) : risk ? (
+              <RiskDonutChart data={risk.distribution} />
+            ) : null}
           </Card>
         </Col>
 
@@ -426,12 +426,12 @@ export default function LearnerActivityPage() {
             className="h-full">
             {slowLoading ? (
               <Skeleton active paragraph={{ rows: 4 }} />
-            ) : (
+            ) : risk ? (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {[
                   {
                     label: "Active Learners",
-                    count: risk!.distribution.active,
+                    count: risk.distribution.active,
                     color: "#16A34A",
                     bg: "#F0FDF4"
                   },
@@ -471,7 +471,7 @@ export default function LearnerActivityPage() {
                   </div>
                 ))}
               </div>
-            )}
+            ) : null}
           </Card>
         </Col>
       </Row>
@@ -485,9 +485,9 @@ export default function LearnerActivityPage() {
         }>
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 8 }} />
-        ) : (
-          <RiskTable data={risk!.fellows} />
-        )}
+        ) : risk ? (
+          <RiskTable data={risk.fellows} />
+        ) : null}
       </Card>
 
       {/* ── Learning Performance ──────────────────────────────────────────── */}
