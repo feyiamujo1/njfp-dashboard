@@ -50,7 +50,6 @@ interface MoodleUser {
   email: string;
   lastaccess: number;
   lastcourseaccess: number;
-  profileimageurl: string;
   roles: Array<{ shortname: string }>;
   customfields?: Array<{ shortname: string; value: string }>;
 }
@@ -93,12 +92,14 @@ async function _fetchAllStudents(): Promise<CachedStudent[]> {
     // roles and customfields are relational — Moodle includes them regardless
     // of this option, so omitting them here avoids silently dropping the data.
     "options[0][name]": "userfields",
+    // profileimageurl excluded — at 1000+ students it pushes the cache past
+    // Next.js's 2 MB unstable_cache limit. Avatars fall back to initials.
     "options[0][value]":
-      "id,fullname,email,lastaccess,lastcourseaccess,profileimageurl,roles,customfields",
+      "id,fullname,email,lastaccess,lastcourseaccess,roles,customfields",
   });
   return (batch ?? [])
     .filter((u) => u.roles.some((r) => r.shortname === "student"))
-    .map(({ id, fullname, email, lastaccess, lastcourseaccess, profileimageurl, customfields }) => {
+    .map(({ id, fullname, email, lastaccess, lastcourseaccess, customfields }) => {
       const cf = (customfields ?? []).reduce<Record<string, string>>((acc, f) => {
         acc[f.shortname] = f.value;
         return acc;
@@ -109,7 +110,7 @@ async function _fetchAllStudents(): Promise<CachedStudent[]> {
         email,
         lastaccess,
         lastcourseaccess,
-        profileimageurl,
+        profileimageurl: "",
         gender: cf.gender ?? null,
         state: cf.state ?? null,
         lga: cf.lga ?? null,

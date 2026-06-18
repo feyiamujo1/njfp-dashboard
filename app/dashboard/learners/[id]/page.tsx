@@ -3,8 +3,8 @@
 import { use } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { Card, Row, Col, Skeleton, Result, Button, Empty } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { Card, Row, Col, Skeleton, Result, Button, Empty, Tooltip as AntTooltip } from "antd";
+import { ArrowLeftOutlined, InfoCircleOutlined } from "@ant-design/icons";
 import {
   BarChart,
   Bar,
@@ -22,6 +22,17 @@ import { useFellowDetail } from "@/hooks/useFellowDetail";
 import { useFellowQuizStats } from "@/hooks/useFellowQuizStats";
 import { CHART_COLORS } from "@/lib/constants";
 import type { Fellow } from "@/lib/types";
+
+function CardTitle({ title, hint }: { title: string; hint: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      {title}
+      <AntTooltip title={hint} styles={{ root: { maxWidth: 320 } }}>
+        <InfoCircleOutlined className="text-slate-400 cursor-help text-xs font-normal" />
+      </AntTooltip>
+    </span>
+  );
+}
 
 export default function LearnerDetailPage({
   params,
@@ -136,6 +147,7 @@ export default function LearnerDetailPage({
             <Col xs={24} sm={12} lg={8}>
               <KPICard
                 title="Overall Completion"
+                tooltip="Percentage of all tracked course activities this fellow has completed, based on activities marked complete across all modules."
                 value={fellow.completionPct}
                 suffix="%"
                 // valueColor="#1D4ED8"
@@ -152,6 +164,7 @@ export default function LearnerDetailPage({
               {quizReady ? (
                 <KPICard
                   title="Avg Quiz Score"
+                  tooltip="Average score across all quizzes in this course, based on the fellow's best attempt per quiz. Loads separately — may take up to 60 seconds on the first visit."
                   value={avgQuizScore}
                   suffix="%"
                   valueColor={
@@ -172,6 +185,7 @@ export default function LearnerDetailPage({
               {quizReady ? (
                 <KPICard
                   title="Engagement Score"
+                  tooltip="A composite score (0–100) combining completion percentage and quiz performance. Higher scores reflect stronger overall engagement with the course content."
                   value={engagementScore}
                   suffix="/100"
                 />
@@ -188,7 +202,7 @@ export default function LearnerDetailPage({
       <Row gutter={[16, 16]} align="stretch">
         <Col xs={24} lg={12} style={{ display: "flex", flexDirection: "column" }}>
           <Card
-            title="Module Progress"
+            title={<CardTitle title="Module Progress" hint="Module-by-module completion status. Each bar shows how many of the tracked activities in that module this fellow has completed." />}
             className="h-full"
             style={{ display: "flex", flexDirection: "column" }}
             styles={{ body: { flex: 1, minHeight: 0, overflow: "auto" } }}
@@ -203,7 +217,7 @@ export default function LearnerDetailPage({
 
         <Col xs={24} lg={12} style={{ display: "flex", flexDirection: "column" }}>
           <Card
-            title="Quiz Performance by Module"
+            title={<CardTitle title="Quiz Performance by Module" hint="Average quiz score per module based on this fellow's best attempt at each quiz. The red dashed line marks the 50% pass threshold." />}
             className="h-full"
             style={{ display: "flex", flexDirection: "column" }}
             styles={{ body: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } }}

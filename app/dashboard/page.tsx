@@ -20,8 +20,10 @@ import {
   AlertOutlined,
   StopOutlined,
   InfoCircleOutlined,
-  TrophyOutlined
+  TrophyOutlined,
+  DownloadOutlined,
 } from "@ant-design/icons";
+import { downloadCsv, formatTs } from "@/lib/export";
 import {
   LineChart,
   Line,
@@ -139,6 +141,21 @@ export default function OverviewPage() {
                 title="Weekly Active Fellows"
                 hint="Number of distinct fellows who accessed the course in each calendar week (Mon–Sun) over the past 8 weeks. A fellow is counted once per week regardless of how many sessions they had."
               />
+            }
+            extra={
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled={loading || !data?.weeklyActive?.length}
+                onClick={() =>
+                  downloadCsv(
+                    "weekly-active-fellows.csv",
+                    ["Week", "Active Fellows"],
+                    (data?.weeklyActive ?? []).map(r => [r.week, r.active])
+                  )
+                }>
+                Export
+              </Button>
             }>
             {loading ? (
               <Skeleton active paragraph={{ rows: 6 }} />
@@ -178,7 +195,28 @@ export default function OverviewPage() {
                 hint="Active: accessed the course in the last 7 days. At-Risk: last access was 7–30 days ago. Inactive: no course activity in over 30 days, or never logged in."
               />
             }
-            className="h-full">
+            className="h-full"
+            extra={
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled={loading || !data?.riskDistribution}
+                onClick={() => {
+                  const dist = data!.riskDistribution;
+                  const total = dist.active + dist.atRisk + dist.inactive;
+                  downloadCsv(
+                    "risk-distribution.csv",
+                    ["Risk Tier", "Count", "%"],
+                    [
+                      ["Active",   dist.active,   total > 0 ? Math.round((dist.active   / total) * 100) : 0],
+                      ["At-Risk",  dist.atRisk,   total > 0 ? Math.round((dist.atRisk   / total) * 100) : 0],
+                      ["Inactive", dist.inactive, total > 0 ? Math.round((dist.inactive / total) * 100) : 0],
+                    ]
+                  );
+                }}>
+                Export
+              </Button>
+            }>
             {loading ? (
               <Skeleton active paragraph={{ rows: 6 }} />
             ) : (
@@ -231,6 +269,23 @@ export default function OverviewPage() {
             title="Module Completion Rate"
             hint="For each module, the % of enrolled fellows who have completed every tracked activity in it. Only fully completed modules count — partial progress is not reflected here."
           />
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={completionLoading || !completion?.moduleCompletion?.length}
+            onClick={() =>
+              downloadCsv(
+                "module-completion-rate.csv",
+                ["Module ID", "Module Name", "Completed Fellows", "Total Fellows", "Completion %"],
+                (completion?.moduleCompletion ?? []).map(m => [
+                  m.moduleId, m.moduleName, m.completedCount, m.totalFellows, m.completionPct,
+                ])
+              )
+            }>
+            Export
+          </Button>
         }>
         {completionLoading ? (
           <Skeleton active paragraph={{ rows: 6 }} />
@@ -258,6 +313,21 @@ export default function OverviewPage() {
               </span>
             )}
             <TrophyOutlined className="text-amber-400 text-lg" />
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              disabled={completionLoading || !completion?.topLearners?.length}
+              onClick={() =>
+                downloadCsv(
+                  "top-learners.csv",
+                  ["Rank", "Name", "Email", "Activities Done", "Total Activities", "Completion %", "Last Active"],
+                  (completion?.topLearners ?? []).map((r, i) => [
+                    i + 1, r.fullname, r.email, r.activitiesDone, r.totalActivities, r.completionPct, formatTs(r.lastcourseaccess),
+                  ])
+                )
+              }>
+              Export All
+            </Button>
           </div>
         }>
         {completionLoading ? (

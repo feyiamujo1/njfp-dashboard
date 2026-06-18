@@ -1,7 +1,8 @@
 "use client";
 
 import { Card, Row, Col, Progress, Skeleton, Result, Button, Tooltip, Table, Slider, Tag } from "antd";
-import { InfoCircleOutlined } from "@ant-design/icons";
+import { InfoCircleOutlined, DownloadOutlined } from "@ant-design/icons";
+import { downloadCsv } from "@/lib/export";
 import { useState, useMemo } from "react";
 import {
   AreaChart, Area,
@@ -56,6 +57,11 @@ const DEM_COLUMNS = [
       <span className="font-medium">{r.completed.toLocaleString()} <Tag color={r.completionPct >= 20 ? "green" : r.completionPct >= 10 ? "orange" : "default"} className="text-xs">{r.completionPct}%</Tag></span>
     )},
 ];
+
+function demRows(rows: DemCompletion[]) {
+  return rows.map(r => [r.label, r.total, r.started, r.startedPct, r.midway, r.midwayPct, r.completed, r.completionPct]);
+}
+const DEM_HEADERS = ["Group", "Enrolled", "Started", "Started %", "Midway", "Midway %", "Completed", "Completed %"];
 
 export default function ModulesPage() {
   const { data: fast, isLoading, isError, error, refetch } = useProgress();
@@ -133,6 +139,23 @@ export default function ModulesPage() {
             }
             style={{ flex: 1, display: "flex", flexDirection: "column" }}
             styles={{ body: { flex: 1 } }}
+            extra={
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled={slowLoading || !slow?.moduleProgress?.length}
+                onClick={() =>
+                  downloadCsv(
+                    "module-completion.csv",
+                    ["Module ID", "Module Name", "Completed Fellows", "Total Fellows", "Completion %"],
+                    (slow?.moduleProgress ?? []).map(m => [
+                      m.moduleId, m.moduleName, m.completedCount, m.totalFellows, m.completionPct,
+                    ])
+                  )
+                }>
+                Export
+              </Button>
+            }
           >
             {slowLoading ? (
               <Skeleton active paragraph={{ rows: 8 }} />
@@ -200,6 +223,21 @@ export default function ModulesPage() {
             hint="% of enrolled fellows who have started each module (completed at least one activity in it). A declining trend shows where learners disengage as the course progresses."
           />
         }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.dropOff?.length}
+            onClick={() =>
+              downloadCsv(
+                "module-drop-off.csv",
+                ["Module ID", "Module Name", "% Started"],
+                (slow?.dropOff ?? []).map(m => [m.moduleId, m.moduleName, m.activePct])
+              )
+            }>
+            Export
+          </Button>
+        }
       >
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 6 }} />
@@ -250,6 +288,13 @@ export default function ModulesPage() {
             hint="For each gender group, the % who have started, reached midway, and fully completed the course — showing where each group drops off in the learning journey."
           />
         }
+        extra={
+          <Button size="small" icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.completionByGender?.length}
+            onClick={() => downloadCsv("funnel-by-gender.csv", DEM_HEADERS, demRows(slow?.completionByGender ?? []))}>
+            Export
+          </Button>
+        }
       >
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 5 }} />
@@ -296,6 +341,13 @@ export default function ModulesPage() {
             hint="Started, midway, and completed rates across Nigeria's 6 geopolitical zones. Helps identify where each region drops off in the course."
           />
         }
+        extra={
+          <Button size="small" icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.completionByRegion?.length}
+            onClick={() => downloadCsv("funnel-by-region.csv", DEM_HEADERS, demRows(slow?.completionByRegion ?? []))}>
+            Export
+          </Button>
+        }
       >
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 7 }} />
@@ -339,6 +391,13 @@ export default function ModulesPage() {
             title="Funnel by State"
             hint="Started, midway, and completed counts per state of origin. Use the slider to focus on the top states by enrolment."
           />
+        }
+        extra={
+          <Button size="small" icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.completionByState?.length}
+            onClick={() => downloadCsv("funnel-by-state.csv", DEM_HEADERS, demRows(slow?.completionByState ?? []))}>
+            Export All States
+          </Button>
         }
       >
         {slowLoading ? (

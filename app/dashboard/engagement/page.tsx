@@ -13,7 +13,8 @@ import {
   Segmented,
   DatePicker
 } from "antd";
-import { InfoCircleOutlined, CloseCircleOutlined } from "@ant-design/icons";
+import { InfoCircleOutlined, CloseCircleOutlined, DownloadOutlined } from "@ant-design/icons";
+import { downloadCsv, formatTs } from "@/lib/export";
 import { useState, useMemo } from "react";
 import type { Dayjs } from "dayjs";
 import {
@@ -313,6 +314,19 @@ export default function LearnerActivityPage() {
                 {trendData.length} {trendView === "month" ? "months" : "weeks"}{" "}
                 shown
               </span>
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled={!trendData.length}
+                onClick={() =>
+                  downloadCsv(
+                    `activity-trend-${trendView}.csv`,
+                    [trendView === "month" ? "Month" : "Week", "Logins", "Interactions"],
+                    trendData.map(r => [r.week, r.logins, r.interactions])
+                  )
+                }>
+                Export
+              </Button>
             </div>
             <ActivityLineChart data={trendData} />
           </>
@@ -423,7 +437,26 @@ export default function LearnerActivityPage() {
                 hint="Headcount and percentage split across the three risk tiers."
               />
             }
-            className="h-full">
+            className="h-full"
+            extra={
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled={slowLoading || !risk}
+                onClick={() =>
+                  downloadCsv(
+                    "risk-distribution.csv",
+                    ["Risk Tier", "Count", "%"],
+                    risk ? [
+                      ["Active",   risk.distribution.active,   totalRisk > 0 ? Math.round((risk.distribution.active   / totalRisk) * 100) : 0],
+                      ["At-Risk",  risk.distribution.atRisk,   totalRisk > 0 ? Math.round((risk.distribution.atRisk   / totalRisk) * 100) : 0],
+                      ["Inactive", risk.distribution.inactive, totalRisk > 0 ? Math.round((risk.distribution.inactive / totalRisk) * 100) : 0],
+                    ] : []
+                  )
+                }>
+                Export
+              </Button>
+            }>
             {slowLoading ? (
               <Skeleton active paragraph={{ rows: 4 }} />
             ) : risk ? (
@@ -482,6 +515,25 @@ export default function LearnerActivityPage() {
             title="Learners — Risk Overview"
             hint="Full list of enrolled fellows with their risk level, completion progress, and last activity. Use the tab filters to drill into active, at-risk, or inactive cohorts."
           />
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={slowLoading || !risk?.fellows?.length}
+            onClick={() =>
+              downloadCsv(
+                "risk-overview.csv",
+                ["Name", "Email", "Risk Level", "Completion %", "Engagement Score", "Last Active", "Days Since Active", "Gender", "State", "Region"],
+                (risk?.fellows ?? []).map(f => [
+                  f.fullname, f.email, f.riskLevel, f.completionPct, f.engagementScore,
+                  formatTs(f.lastcourseaccess), f.daysSinceActive === 999 ? "Never" : f.daysSinceActive,
+                  f.gender ?? "Not Specified", f.state ?? "Not Specified", f.region ?? "Not Specified",
+                ])
+              )
+            }>
+            Export
+          </Button>
         }>
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 8 }} />

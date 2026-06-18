@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, Tag, Alert, Collapse, Skeleton, Result, Button, Empty } from "antd";
+import { Card, Tag, Alert, Collapse, Skeleton, Result, Button, Empty, Tooltip } from "antd";
 import {
   BookOutlined,
   FileTextOutlined,
@@ -11,7 +11,10 @@ import {
   LinkOutlined,
   QuestionCircleOutlined,
   FolderOpenOutlined,
+  InfoCircleOutlined,
+  DownloadOutlined,
 } from "@ant-design/icons";
+import { downloadCsv } from "@/lib/export";
 import { useCourseStructure } from "@/hooks/useCourseStructure";
 import type { CourseModule, CourseSection } from "@/hooks/useCourseStructure";
 
@@ -267,9 +270,39 @@ export default function CourseStructurePage() {
       </div>
 
       <Card
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={() => {
+              const rows: (string | number)[][] = [];
+              sections.forEach(sec => {
+                if (sec.subSections.length === 0) {
+                  sec.modules.forEach(mod =>
+                    rows.push([sec.name, "", mod.name, mod.modname, mod.completion > 0 ? "Yes" : "No"])
+                  );
+                } else {
+                  sec.subSections.forEach(lesson =>
+                    lesson.modules.forEach(mod =>
+                      rows.push([sec.name, lesson.name, mod.name, mod.modname, mod.completion > 0 ? "Yes" : "No"])
+                    )
+                  );
+                }
+              });
+              downloadCsv("course-structure.csv", ["Module", "Lesson", "Activity", "Type", "Tracked"], rows);
+            }}>
+            Export Structure
+          </Button>
+        }
         title={
           <div className="flex items-center gap-3 mt-5!">
             <span>Course Content Map</span>
+            <Tooltip
+              title="A live map of the NJFP course pulled from Moodle. 'Tracked' activities are those with completion tracking enabled — they count toward each fellow's completion percentage on other pages."
+              styles={{ root: { maxWidth: 340 } }}
+            >
+              <InfoCircleOutlined className="text-slate-400 cursor-help text-xs font-normal" />
+            </Tooltip>
             <span className="text-slate-400 text-sm font-normal">
               {sections.length} sections · {totalActivities} activities · {totalTracked} tracked
             </span>

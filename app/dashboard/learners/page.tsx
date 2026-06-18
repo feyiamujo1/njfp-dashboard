@@ -12,11 +12,13 @@ import {
   Slider,
   Statistic,
   DatePicker,
-  Segmented
+  Segmented,
+  Tooltip
 } from "antd";
 import {
   SearchOutlined,
   DownloadOutlined,
+  InfoCircleOutlined,
 } from "@ant-design/icons";
 import { useState, useMemo } from "react";
 import type { Dayjs } from "dayjs";
@@ -37,6 +39,7 @@ import type { TooltipProps } from "recharts";
 import FellowsTable from "@/components/tables/FellowsTable";
 import { useFellows } from "@/hooks/useFellows";
 import { normalizeRegion, normalizeState } from "@/lib/util";
+import { downloadCsv, formatTs } from "@/lib/export";
 
 const { RangePicker } = DatePicker;
 
@@ -46,23 +49,6 @@ const GENDER_COLORS: Record<string, string> = {
   "Not Specified": "#94a3b8"
 };
 
-function downloadCsv(
-  filename: string,
-  headers: string[],
-  rows: (string | number)[][]
-) {
-  const lines = [
-    headers.join(","),
-    ...rows.map(r => r.map(v => `"${v}"`).join(","))
-  ];
-  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 type PctPayload = { pct: number; [key: string]: unknown };
 
@@ -82,13 +68,23 @@ function pctTooltipFormatter(
 
 type DateRangeValue = [Dayjs | null, Dayjs | null] | null;
 
+function CardTitle({ title, hint }: { title: string; hint: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      {title}
+      <Tooltip title={hint} styles={{ root: { maxWidth: 320 } }}>
+        <InfoCircleOutlined className="text-slate-400 cursor-help text-xs font-normal" />
+      </Tooltip>
+    </span>
+  );
+}
+
 export default function FellowsPage() {
   const { data, isLoading, isError, error, refetch } = useFellows();
   const [search, setSearch] = useState("");
   const [genderFilter, setGenderFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
   const [topStates, setTopStates] = useState(15);
-  const [topStatesActivity, setTopStatesActivity] = useState(15);
   const [activityRange, setActivityRange] = useState<DateRangeValue>(null);
   const [timelineView, setTimelineView] = useState<"month" | "week">("month");
   const [timelineRange, setTimelineRange] = useState<DateRangeValue>(null);
@@ -126,34 +122,38 @@ export default function FellowsPage() {
 
   const regionDist = useMemo(() => {
     if (!data) return [];
-    const counts: Record<string, number> = {};
+    const counts: Record<string, { count: number; active: number; inactive: number }> = {};
     data.forEach(f => {
       const r = normalizeRegion(f.region);
-      counts[r] = (counts[r] ?? 0) + 1;
+      if (!counts[r]) counts[r] = { count: 0, active: 0, inactive: 0 };
+      counts[r].count++;
+      if (f.lastcourseaccess && f.lastcourseaccess > 0) counts[r].active++;
+      else counts[r].inactive++;
     });
     const total = data.length;
     return Object.entries(counts)
-      .map(([region, count]) => ({
-        region,
-        count,
-        pct: total > 0 ? Math.round((count / total) * 100) : 0
+      .map(([region, { count, active, inactive }]) => ({
+        region, count, active, inactive,
+        pct: total > 0 ? Math.round((count / total) * 100) : 0,
       }))
       .sort((a, b) => b.count - a.count);
   }, [data]);
 
   const stateDist = useMemo(() => {
     if (!data) return [];
-    const counts: Record<string, number> = {};
+    const counts: Record<string, { count: number; active: number; inactive: number }> = {};
     data.forEach(f => {
       const s = normalizeState(f.state);
-      counts[s] = (counts[s] ?? 0) + 1;
+      if (!counts[s]) counts[s] = { count: 0, active: 0, inactive: 0 };
+      counts[s].count++;
+      if (f.lastcourseaccess && f.lastcourseaccess > 0) counts[s].active++;
+      else counts[s].inactive++;
     });
     const total = data.length;
     return Object.entries(counts)
-      .map(([state, count]) => ({
-        state,
-        count,
-        pct: total > 0 ? Math.round((count / total) * 100) : 0
+      .map(([state, { count, active, inactive }]) => ({
+        state, count, active, inactive,
+        pct: total > 0 ? Math.round((count / total) * 100) : 0,
       }))
       .sort((a, b) => b.count - a.count);
   }, [data]);
@@ -161,49 +161,6 @@ export default function FellowsPage() {
   const stateChartData = useMemo(
     () => stateDist.slice(0, topStates),
     [stateDist, topStates]
-  );
-
-  const activeByRegionDist = useMemo(() => {
-    if (!data) return [];
-    const counts: Record<string, { active: number; inactive: number }> = {};
-    data.forEach(f => {
-      const r = normalizeRegion(f.region);
-      if (!counts[r]) counts[r] = { active: 0, inactive: 0 };
-      if (f.lastcourseaccess && f.lastcourseaccess > 0) counts[r].active++;
-      else counts[r].inactive++;
-    });
-    return Object.entries(counts)
-      .map(([region, { active, inactive }]) => ({
-        region,
-        active,
-        inactive,
-        total: active + inactive,
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [data]);
-
-  const activeByStateDist = useMemo(() => {
-    if (!data) return [];
-    const counts: Record<string, { active: number; inactive: number }> = {};
-    data.forEach(f => {
-      const s = normalizeState(f.state);
-      if (!counts[s]) counts[s] = { active: 0, inactive: 0 };
-      if (f.lastcourseaccess && f.lastcourseaccess > 0) counts[s].active++;
-      else counts[s].inactive++;
-    });
-    return Object.entries(counts)
-      .map(([state, { active, inactive }]) => ({
-        state,
-        active,
-        inactive,
-        total: active + inactive,
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [data]);
-
-  const activeByStateChartData = useMemo(
-    () => activeByStateDist.slice(0, topStatesActivity),
-    [activeByStateDist, topStatesActivity]
   );
 
   // Active vs Inactive
@@ -377,13 +334,13 @@ export default function FellowsPage() {
           <>
             <Card>
               <Statistic
-                title="Total Students"
+                title={<CardTitle title="Total Students" hint="Total number of fellows enrolled in the NJFP course on Moodle, including those who have never logged in." />}
                 value={topStats.total}
               />
             </Card>
             <Card>
               <Statistic
-                title="Active Students"
+                title={<CardTitle title="Active Students" hint="Fellows who have accessed the course at least once. The percentage shows their share of total enrolment." />}
                 value={topStats.activeCount}
                 suffix={
                   <span className="text-sm text-slate-400 font-normal ml-1">
@@ -394,7 +351,7 @@ export default function FellowsPage() {
             </Card>
             <Card>
               <Statistic
-                title="Female"
+                title={<CardTitle title="Female" hint="Number of female fellows based on the gender field in their Moodle profile. Fellows without a profile entry appear as 'Not Specified'." />}
                 value={topStats.femaleCount}
                 suffix={
                   <span className="text-sm text-slate-400 font-normal ml-1">
@@ -405,7 +362,7 @@ export default function FellowsPage() {
             </Card>
             <Card>
               <Statistic
-                title="Male"
+                title={<CardTitle title="Male" hint="Number of male fellows based on the gender field in their Moodle profile." />}
                 value={topStats.maleCount}
                 suffix={
                   <span className="text-sm text-slate-400 font-normal ml-1">
@@ -431,7 +388,7 @@ export default function FellowsPage() {
 
       {/* ── Active vs Inactive ───────────────────────────────────────────── */}
       <Card
-        title="Active vs Inactive"
+        title={<CardTitle title="Active vs Inactive" hint="Shows how many fellows have ever accessed the course vs those who have not. Use the date range filter to narrow results to a specific period." />}
         extra={
           <div className="flex items-center gap-2">
             <RangePicker
@@ -504,7 +461,7 @@ export default function FellowsPage() {
 
       {/* ── Activity Timeline ────────────────────────────────────────────── */}
       <Card
-        title="Activity Timeline"
+        title={<CardTitle title="Activity Timeline" hint="Counts how many fellows had their last course access in each time period. Not cumulative — each fellow is counted once, in the period of their most recent visit." />}
         extra={
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <RangePicker
@@ -555,7 +512,7 @@ export default function FellowsPage() {
 
       {/* ── Gender Split ────────────────────────────────────────────────── */}
       <Card
-        title="Gender Split"
+        title={<CardTitle title="Gender Split" hint="Breakdown of enrolled fellows by gender, based on the gender field in each fellow's Moodle profile. Fellows without a profile entry appear as 'Not Specified'." />}
         extra={
           <Button
             size="small"
@@ -629,7 +586,7 @@ export default function FellowsPage() {
 
       {/* ── Geopolitical Spread ──────────────────────────────────────────── */}
       <Card
-        title="Geopolitical Spread"
+        title={<CardTitle title="Geopolitical Spread" hint="Number of enrolled fellows per geopolitical zone, split by whether they have ever accessed the course (Active) or not (Inactive / Never)." />}
         extra={
           <Button
             size="small"
@@ -638,8 +595,8 @@ export default function FellowsPage() {
             onClick={() =>
               downloadCsv(
                 "region-distribution.csv",
-                ["Region", "Count", "Percentage"],
-                regionDist.map(r => [r.region, r.count, `${r.pct}%`])
+                ["Region", "Total", "Active", "Inactive", "Percentage"],
+                regionDist.map(r => [r.region, r.count, r.active, r.inactive, `${r.pct}%`])
               )
             }>
             Download
@@ -651,38 +608,18 @@ export default function FellowsPage() {
           <>
             <ResponsiveContainer
               width="100%"
-              height={Math.max(300, regionDist.length * 48)}>
+              height={Math.max(300, regionDist.length * 52)}>
               <BarChart
                 data={regionDist}
                 layout="vertical"
-                margin={{ left: 8, right: 40, top: 8, bottom: 8 }}>
+                margin={{ left: 8, right: 60, top: 8, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 12 }}
-                  allowDecimals={false}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="region"
-                  width={140}
-                  tick={{ fontSize: 12 }}
-                />
-                <RechartTooltip
-                  formatter={(value, _name, item) =>
-                    pctTooltipFormatter(
-                      value as number,
-                      _name as string,
-                      item as { payload?: PctPayload }
-                    )
-                  }
-                />
-                <Bar
-                  dataKey="count"
-                  fill="#3c83f6"
-                  radius={[0, 4, 4, 0]}
-                  barSize={32}
-                />
+                <XAxis type="number" tick={{ fontSize: 12 }} allowDecimals={false} />
+                <YAxis type="category" dataKey="region" width={140} tick={{ fontSize: 12 }} />
+                <RechartTooltip formatter={(val, name) => [`${val} Fellows`, name as string]} />
+                <Legend />
+                <Bar dataKey="active" name="Active" stackId="a" fill="#22c55e" barSize={28} />
+                <Bar dataKey="inactive" name="Inactive / Never" stackId="a" fill="#e2e8f0" radius={[0, 4, 4, 0]} barSize={28} />
               </BarChart>
             </ResponsiveContainer>
             <Table
@@ -693,57 +630,19 @@ export default function FellowsPage() {
               className="mt-4"
               columns={[
                 { title: "Region", dataIndex: "region", key: "region" },
-                {
-                  title: "Count",
-                  dataIndex: "count",
-                  key: "count",
-                  align: "right" as const
-                },
-                {
-                  title: "%",
-                  dataIndex: "pct",
-                  key: "pct",
-                  align: "right" as const,
-                  render: (v: number) => `${v}%`
-                }
+                { title: "Total", dataIndex: "count", key: "count", align: "right" as const },
+                { title: "Active", dataIndex: "active", key: "active", align: "right" as const },
+                { title: "Inactive / Never", dataIndex: "inactive", key: "inactive", align: "right" as const },
+                { title: "%", dataIndex: "pct", key: "pct", align: "right" as const, render: (v: number) => `${v}%` },
               ]}
             />
           </>
         )}
       </Card>
 
-      {/* ── Active vs Inactive by Region ────────────────────────────────── */}
-      <Card title="Active vs Inactive by Region">
-        {isLoading ? (
-          <Skeleton active paragraph={{ rows: 6 }} />
-        ) : (
-          <ResponsiveContainer
-            width="100%"
-            height={Math.max(300, activeByRegionDist.length * 52)}>
-            <BarChart
-              data={activeByRegionDist}
-              layout="vertical"
-              margin={{ left: 8, right: 60, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 12 }} allowDecimals={false} />
-              <YAxis
-                type="category"
-                dataKey="region"
-                width={140}
-                tick={{ fontSize: 12 }}
-              />
-              <RechartTooltip formatter={(val, name) => [`${val} Students`, name as string]} />
-              <Legend />
-              <Bar dataKey="active" name="Active" stackId="a" fill="#22c55e" barSize={28} />
-              <Bar dataKey="inactive" name="Inactive" stackId="a" fill="#e2e8f0" barSize={28} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </Card>
-
       {/* ── State Distribution ───────────────────────────────────────────── */}
       <Card
-        title="State Distribution"
+        title={<CardTitle title="State Distribution" hint="Number of enrolled fellows per state of origin, split by whether they have accessed the course (Active) or not (Inactive / Never). Use the slider to focus on the top N states." />}
         extra={
           <Button
             size="small"
@@ -752,8 +651,8 @@ export default function FellowsPage() {
             onClick={() =>
               downloadCsv(
                 "state-distribution.csv",
-                ["State", "Count", "Percentage"],
-                stateDist.map(r => [r.state, r.count, `${r.pct}%`])
+                ["State", "Total", "Active", "Inactive", "Percentage"],
+                stateDist.map(r => [r.state, r.count, r.active, r.inactive, `${r.pct}%`])
               )
             }>
             Download
@@ -776,109 +675,69 @@ export default function FellowsPage() {
                 tooltip={{ formatter: v => `Top ${v}` }}
               />
             </div>
-            <ResponsiveContainer width="100%" height={420}>
+            <ResponsiveContainer width="100%" height={Math.max(360, topStates * 28)}>
               <BarChart
                 data={stateChartData}
                 margin={{ bottom: 80, left: 0, right: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="state"
-                  tick={{ fontSize: 10 }}
-                  angle={-45}
-                  textAnchor="end"
-                  interval={0}
-                />
+                <XAxis dataKey="state" tick={{ fontSize: 10 }} angle={-45} textAnchor="end" interval={0} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                <RechartTooltip
-                  formatter={(value, _name, item) =>
-                    pctTooltipFormatter(
-                      value as number,
-                      _name as string,
-                      item as { payload?: PctPayload }
-                    )
-                  }
-                />
-                <Bar dataKey="count" fill="#3c83f6" radius={[4, 4, 0, 0]} />
+                <RechartTooltip formatter={(val, name) => [`${val} Fellows`, name as string]} />
+                <Legend />
+                <Bar dataKey="active" name="Active" stackId="a" fill="#22c55e" />
+                <Bar dataKey="inactive" name="Inactive / Never" stackId="a" fill="#e2e8f0" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
             <Table
               size="small"
               dataSource={stateDist}
               rowKey="state"
-              pagination={{
-                pageSize: 10,
-                showSizeChanger: false,
-                showTotal: t => `${t} states`
-              }}
+              pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} states` }}
               className="mt-4"
               columns={[
                 { title: "State", dataIndex: "state", key: "state" },
-                {
-                  title: "Count",
-                  dataIndex: "count",
-                  key: "count",
-                  align: "right" as const,
-                  sorter: (a: { count: number }, b: { count: number }) =>
-                    b.count - a.count,
-                  defaultSortOrder: "ascend" as const
-                },
-                {
-                  title: "%",
-                  dataIndex: "pct",
-                  key: "pct",
-                  align: "right" as const,
-                  render: (v: number) => `${v}%`
-                }
+                { title: "Total", dataIndex: "count", key: "count", align: "right" as const,
+                  sorter: (a: { count: number }, b: { count: number }) => b.count - a.count,
+                  defaultSortOrder: "ascend" as const },
+                { title: "Active", dataIndex: "active", key: "active", align: "right" as const },
+                { title: "Inactive / Never", dataIndex: "inactive", key: "inactive", align: "right" as const },
+                { title: "%", dataIndex: "pct", key: "pct", align: "right" as const, render: (v: number) => `${v}%` },
               ]}
             />
           </>
         )}
       </Card>
 
-      {/* ── Active vs Inactive by State ─────────────────────────────────── */}
-      <Card title="Active vs Inactive by State">
-        {isLoading ? (
-          <Skeleton active paragraph={{ rows: 8 }} />
-        ) : (
-          <>
-            <div className="flex items-center gap-4 mb-4">
-              <span className="text-sm text-slate-500 whitespace-nowrap">
-                Top {topStatesActivity} of {activeByStateDist.length} states
-              </span>
-              <Slider
-                min={5}
-                max={Math.min(activeByStateDist.length, 37)}
-                value={topStatesActivity}
-                onChange={setTopStatesActivity}
-                className="flex-1"
-                tooltip={{ formatter: v => `Top ${v}` }}
-              />
-            </div>
-            <ResponsiveContainer width="100%" height={440}>
-              <BarChart
-                data={activeByStateChartData}
-                margin={{ bottom: 80, left: 0, right: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="state"
-                  tick={{ fontSize: 10 }}
-                  angle={-45}
-                  textAnchor="end"
-                  interval={0}
-                />
-                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                <RechartTooltip formatter={(val, name) => [`${val} Students`, name as string]} />
-                <Legend />
-                <Bar dataKey="active" name="Active" stackId="a" fill="#22c55e" />
-                <Bar dataKey="inactive" name="Inactive" stackId="a" fill="#e2e8f0" />
-              </BarChart>
-            </ResponsiveContainer>
-          </>
-        )}
-      </Card>
-
       {/* ── All Students table ────────────────────────────────────────────── */}
-      <Card title="All Students">
+      <Card
+        title={<CardTitle title="All Students" hint="Full directory of enrolled fellows. Search by name, email, or state, and filter by gender or geopolitical region. Click a row to open the individual profile." />}
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={isLoading || !data}
+            onClick={() =>
+              downloadCsv(
+                "all-students.csv",
+                ["Name", "Email", "Gender", "State", "LGA", "Region", "Last Access", "Completion %", "Risk Level", "Engagement Score", "Days Since Active"],
+                (data ?? []).map(f => [
+                  f.fullname,
+                  f.email,
+                  f.gender ?? "Not Specified",
+                  f.state ?? "Not Specified",
+                  f.lga ?? "Not Specified",
+                  f.region ?? "Not Specified",
+                  formatTs(f.lastcourseaccess),
+                  f.completionPct,
+                  f.riskLevel,
+                  f.engagementScore,
+                  f.daysSinceActive === 999 ? "Never active" : f.daysSinceActive,
+                ])
+              )
+            }>
+            Export All
+          </Button>
+        }>
         <div className="flex items-center gap-3 flex-wrap mb-4">
           <Input
             prefix={<SearchOutlined className="text-slate-400" />}
