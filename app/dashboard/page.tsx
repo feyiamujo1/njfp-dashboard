@@ -299,7 +299,7 @@ export default function OverviewPage() {
         title={
           <CardTitle
             title="Top Learners"
-            hint="The 20 fellows with the highest course completion percentage among those who have started at least one activity. Ranked by % of all tracked activities completed."
+            hint="All fellows ranked by course completion percentage, showing only those who have started at least one activity. Ranked by % of all tracked activities completed."
           />
         }
         extra={

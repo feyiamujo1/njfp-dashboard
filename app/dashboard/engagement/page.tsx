@@ -551,44 +551,99 @@ export default function LearnerActivityPage() {
             title="Most Viewed Modules"
             hint="For each module, the number of fellows who have completed at least one activity in it — a measure of reach rather than completion."
           />
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.moduleViews?.length}
+            onClick={() =>
+              downloadCsv(
+                "module-views.csv",
+                ["Module ID", "Module Name", "Fellows Started"],
+                (slow?.moduleViews ?? []).map(m => [m.moduleId, m.moduleName, m.views])
+              )
+            }>
+            Export
+          </Button>
         }>
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 5 }} />
         ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart
-              data={(slow?.moduleViews ?? []).map(
-                (
-                  d: { moduleId: number; moduleName: string; views: number },
-                  i: number
-                ) => ({
-                  ...d,
-                  fill: CHART_COLORS.modules[i % CHART_COLORS.modules.length]
-                })
-              )}
-              layout="vertical"
-              margin={{ top: 10, right: 40, left: 10, bottom: 0 }}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="#f0f0f0"
-                horizontal={false}
-              />
-              <XAxis type="number" tick={{ fontSize: 12 }} />
-              <YAxis
-                dataKey="moduleName"
-                type="category"
-                tick={{ fontSize: 12 }}
-                width={160}
-              />
-              <ChartTooltip
-                formatter={(v: unknown) => [
-                  Number(v).toLocaleString(),
-                  "Fellows Started"
-                ]}
-              />
-              <Bar dataKey="views" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart
+                data={(slow?.moduleViews ?? []).map(
+                  (
+                    d: { moduleId: number; moduleName: string; views: number },
+                    i: number
+                  ) => ({
+                    ...d,
+                    fill: CHART_COLORS.modules[i % CHART_COLORS.modules.length]
+                  })
+                )}
+                layout="vertical"
+                margin={{ top: 10, right: 40, left: 10, bottom: 0 }}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="#f0f0f0"
+                  horizontal={false}
+                />
+                <XAxis type="number" tick={{ fontSize: 12 }} />
+                <YAxis
+                  dataKey="moduleName"
+                  type="category"
+                  tick={{ fontSize: 12 }}
+                  width={160}
+                />
+                <ChartTooltip
+                  formatter={(v: unknown) => [
+                    Number(v).toLocaleString(),
+                    "Fellows Started"
+                  ]}
+                />
+                <Bar dataKey="views" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <Table
+              size="small"
+              dataSource={(slow?.moduleViews ?? []).map((m, i) => ({ ...m, rank: i + 1 }))}
+              rowKey="moduleId"
+              pagination={false}
+              className="mt-4"
+              columns={[
+                {
+                  title: "#",
+                  dataIndex: "rank",
+                  key: "rank",
+                  width: 48,
+                  render: (v: number) => <span className="text-slate-400 font-medium">{v}</span>,
+                },
+                {
+                  title: "Module",
+                  dataIndex: "moduleName",
+                  key: "moduleName",
+                },
+                {
+                  title: "Fellows Started",
+                  dataIndex: "views",
+                  key: "views",
+                  align: "right" as const,
+                  render: (v: number) => v.toLocaleString(),
+                  sorter: (a: { views: number }, b: { views: number }) => b.views - a.views,
+                },
+                {
+                  title: "Reach %",
+                  key: "reach",
+                  align: "right" as const,
+                  render: (_: unknown, r: { views: number }) =>
+                    totalRisk > 0
+                      ? `${Math.round((r.views / totalRisk) * 100)}%`
+                      : "—",
+                },
+              ]}
+            />
+          </>
         )}
       </Card>
 
@@ -596,8 +651,26 @@ export default function LearnerActivityPage() {
         title={
           <CardTitle
             title="Top Learners by Engagement"
-            hint="The 20 most engaged active fellows ranked by engagement score (composite of completion % and activity). Only fellows active in the past 7 days are included."
+            hint="All currently active fellows ranked by engagement score (a composite of completion % and activity). Only fellows who accessed the course in the past 7 days are included."
           />
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.topLearners?.length}
+            onClick={() =>
+              downloadCsv(
+                "top-learners-engagement.csv",
+                ["Rank", "Name", "Email", "Engagement Score", "Completion %", "Risk Level", "Last Active", "State", "Region"],
+                (slow?.topLearners ?? []).map((f, i) => [
+                  i + 1, f.fullname, f.email, f.engagementScore, f.completionPct, f.riskLevel,
+                  formatTs(f.lastcourseaccess), f.state ?? "Not Specified", f.region ?? "Not Specified",
+                ])
+              )
+            }>
+            Export All
+          </Button>
         }>
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 6 }} />
@@ -616,6 +689,21 @@ export default function LearnerActivityPage() {
             title="Activity by Gender"
             hint="Active, at-risk, and inactive fellow counts by gender. Active = accessed in last 7 days; At-Risk = 7–30 days; Inactive = 30+ days or never."
           />
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.activityByGender?.length}
+            onClick={() =>
+              downloadCsv(
+                "activity-by-gender.csv",
+                ["Gender", "Total", "Active", "At-Risk", "Inactive"],
+                (slow?.activityByGender ?? []).map(r => [r.label, r.total, r.active, r.atRisk, r.inactive])
+              )
+            }>
+            Export
+          </Button>
         }>
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 5 }} />
@@ -690,6 +778,21 @@ export default function LearnerActivityPage() {
             title="Activity by Geopolitical Region"
             hint="Active, at-risk, and inactive fellow counts across Nigeria's 6 geopolitical zones. Stacked bars show the full cohort size and engagement split per region."
           />
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.activityByRegion?.length}
+            onClick={() =>
+              downloadCsv(
+                "activity-by-region.csv",
+                ["Region", "Total", "Active", "At-Risk", "Inactive"],
+                (slow?.activityByRegion ?? []).map(r => [r.label, r.total, r.active, r.atRisk, r.inactive])
+              )
+            }>
+            Export
+          </Button>
         }>
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 7 }} />
@@ -777,6 +880,21 @@ export default function LearnerActivityPage() {
             title="Activity by State"
             hint="Active, at-risk, and inactive fellow counts per state of origin. Sorted by total enrolment. Use the slider to focus on the top states."
           />
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.activityByState?.length}
+            onClick={() =>
+              downloadCsv(
+                "activity-by-state.csv",
+                ["State", "Total", "Active", "At-Risk", "Inactive"],
+                (slow?.activityByState ?? []).map(r => [r.label, r.total, r.active, r.atRisk, r.inactive])
+              )
+            }>
+            Export All States
+          </Button>
         }>
         {slowLoading ? (
           <Skeleton active paragraph={{ rows: 10 }} />

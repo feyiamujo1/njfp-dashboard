@@ -44,7 +44,6 @@ export async function GET() {
     const topLearners = learnerStats
       .filter(({ completionPct }) => completionPct > 0)
       .sort((a, b) => b.completionPct - a.completionPct)
-      .slice(0, 20)
       .map(({ s, doneCount, completionPct }) => ({
         id: s.id,
         fullname: s.fullname,

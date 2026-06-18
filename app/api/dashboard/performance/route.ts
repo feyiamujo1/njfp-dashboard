@@ -13,8 +13,7 @@ export async function GET() {
         b.engagementScore !== a.engagementScore
           ? b.engagementScore - a.engagementScore
           : b.completionPct - a.completionPct
-      )
-      .slice(0, 20);
+      );
 
     return NextResponse.json({ topLearners });
   } catch (err) {
