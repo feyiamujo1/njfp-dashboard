@@ -1,21 +1,16 @@
 /**
- * Shared server-side data cache.
+ * Supabase-backed data layer.
  *
- * Expensive Moodle calls (enrolled students, per-user completion, forum
- * discussions, quiz details) are wrapped in unstable_cache so the processed
- * result is stored for 5 minutes.  Multiple route handlers that open within
- * the same cache window pay the cost only once.
- *
- * Return types are plain JSON-serialisable objects — no Map/Set.
- * Use the hydration helpers below to rebuild Maps inside route handlers.
+ * All functions that previously called Moodle via unstable_cache now read from
+ * Supabase. Data is kept fresh by the /api/sync cron job (every 2 hours).
+ * Public function names and return types are unchanged so route files need
+ * no modifications.
  */
 
-import { unstable_cache } from "next/cache";
-import { moodleCall } from "@/lib/moodle";
-import { COURSE_ID } from "@/lib/constants";
+import { supabase } from "@/integration/supabase/server";
 import type { FellowSummary, RiskLevel } from "@/lib/types";
 
-// ─── Internal Moodle shapes ───────────────────────────────────────────────────
+// ─── Exported types ───────────────────────────────────────────────────────────
 
 export interface CachedStudent {
   id: number;
@@ -36,36 +31,100 @@ export interface CachedCourseModule {
   activityIds: number[];
 }
 
-/** Quiz instance → max grade (for percentage calculation) */
 export interface CachedQuizDetail {
   quizId: number;
   gradeMax: number;
 }
 
-// ─── Internal interfaces (not exported) ───────────────────────────────────────
-
-interface MoodleUser {
-  id: number;
-  fullname: string;
-  email: string;
-  lastaccess: number;
-  lastcourseaccess: number;
-  roles: Array<{ shortname: string }>;
-  customfields?: Array<{ shortname: string; value: string }>;
+export interface QuizInstance {
+  quizId: number;
+  moduleSection: number;
+  moduleName: string;
 }
 
-interface MoodleSection {
-  id: number;
-  name: string;
-  visible: 1 | 0;
-  section: number;
-  component?: string | null;
-  itemid?: number | null;
-  modules: Array<{ id: number; instance: number; modname: string; completion: number }>;
+// ─── Supabase queries ─────────────────────────────────────────────────────────
+
+export async function getCachedStudents(): Promise<CachedStudent[]> {
+  const { data, error } = await supabase
+    .from("students")
+    .select("id, fullname, email, lastaccess, lastcourseaccess, profileimageurl, gender, state, lga, region");
+
+  if (error) throw new Error(`getCachedStudents: ${error.message}`);
+
+  return (data ?? []).map(s => ({
+    id: s.id,
+    fullname: s.fullname,
+    email: s.email,
+    lastaccess: s.lastaccess,
+    lastcourseaccess: s.lastcourseaccess,
+    profileimageurl: s.profileimageurl,
+    gender: s.gender,
+    state: s.state,
+    lga: s.lga,
+    region: s.region,
+  }));
 }
 
-interface MoodleCompletionStatus {
-  statuses: Array<{ cmid: number; state: number; tracking: number }>;
+export async function getCachedCourseModules(): Promise<CachedCourseModule[]> {
+  const { data, error } = await supabase
+    .from("course_modules")
+    .select("module_id, module_name, activity_ids")
+    .order("module_id");
+
+  if (error) throw new Error(`getCachedCourseModules: ${error.message}`);
+
+  return (data ?? []).map(m => ({
+    moduleId: m.module_id,
+    moduleName: m.module_name,
+    activityIds: m.activity_ids,
+  }));
+}
+
+export async function getCachedRawCompletions(): Promise<Record<string, number[]>> {
+  const { data, error } = await supabase
+    .from("completions")
+    .select("user_id, completed_cmids");
+
+  if (error) throw new Error(`getCachedRawCompletions: ${error.message}`);
+
+  const result: Record<string, number[]> = {};
+  (data ?? []).forEach(r => { result[String(r.user_id)] = r.completed_cmids; });
+  return result;
+}
+
+export async function getCachedQuizDetails(): Promise<CachedQuizDetail[]> {
+  const { data, error } = await supabase
+    .from("quiz_details")
+    .select("quiz_id, grade_max");
+
+  if (error) throw new Error(`getCachedQuizDetails: ${error.message}`);
+
+  return (data ?? []).map(q => ({
+    quizId: q.quiz_id,
+    gradeMax: Number(q.grade_max),
+  }));
+}
+
+export async function getCachedQuizInstances(): Promise<QuizInstance[]> {
+  const { data, error } = await supabase
+    .from("quiz_instances")
+    .select("quiz_id, module_section, module_name");
+
+  if (error) throw new Error(`getCachedQuizInstances: ${error.message}`);
+
+  return (data ?? []).map(q => ({
+    quizId: q.quiz_id,
+    moduleSection: q.module_section,
+    moduleName: q.module_name,
+  }));
+}
+
+// ─── Hydration helpers ────────────────────────────────────────────────────────
+
+export function makeCompletedByUser(
+  raw: Record<string, number[]>
+): Map<number, Set<number>> {
+  return new Map(Object.entries(raw).map(([k, v]) => [Number(k), new Set(v)]));
 }
 
 // ─── Shared utilities ─────────────────────────────────────────────────────────
@@ -77,254 +136,13 @@ export async function batchProcess<In, Out>(
 ): Promise<Out[]> {
   const results: Out[] = [];
   for (let i = 0; i < items.length; i += concurrency) {
-    const chunk = items.slice(i, i + concurrency);
-    results.push(...(await Promise.all(chunk.map(fn))));
+    results.push(...(await Promise.all(items.slice(i, i + concurrency).map(fn))));
   }
   return results;
 }
 
-// ─── Raw fetchers (called inside unstable_cache wrappers) ─────────────────────
-
-async function _fetchAllStudents(): Promise<CachedStudent[]> {
-  const batch = await moodleCall<MoodleUser[]>("core_enrol_get_enrolled_users", {
-    courseid: COURSE_ID,
-    // Limit flat profile fields to reduce response payload.
-    // roles and customfields are relational — Moodle includes them regardless
-    // of this option, so omitting them here avoids silently dropping the data.
-    "options[0][name]": "userfields",
-    // profileimageurl excluded — at 1000+ students it pushes the cache past
-    // Next.js's 2 MB unstable_cache limit. Avatars fall back to initials.
-    "options[0][value]":
-      "id,fullname,email,lastaccess,lastcourseaccess,roles,customfields",
-  });
-  return (batch ?? [])
-    .filter((u) => u.roles.some((r) => r.shortname === "student"))
-    .map(({ id, fullname, email, lastaccess, lastcourseaccess, customfields }) => {
-      const cf = (customfields ?? []).reduce<Record<string, string>>((acc, f) => {
-        acc[f.shortname] = f.value;
-        return acc;
-      }, {});
-      return {
-        id,
-        fullname,
-        email,
-        lastaccess,
-        lastcourseaccess,
-        profileimageurl: "",
-        gender: cf.gender ?? null,
-        state: cf.state ?? null,
-        lga: cf.lga ?? null,
-        region: cf.region ?? null,
-      };
-    });
-}
-
-async function _fetchCourseModules(): Promise<CachedCourseModule[]> {
-  const sections = await moodleCall<MoodleSection[]>("core_course_get_contents", {
-    courseid: COURSE_ID,
-  });
-
-  const visible = sections.filter((s) => s.visible === 1);
-
-  // Split into top-level sections (component: null) and lesson sections (component: "mod_subsection").
-  // The subsection nav modules inside top-level sections have completion: 0 and are NOT tracked.
-  // The actual tracked activities (label, resource, folder, quiz) live inside the lesson sections.
-  const topLevel = visible.filter((s) => s.component !== "mod_subsection" && s.section > 0);
-  const lessonSections = visible.filter((s) => s.component === "mod_subsection");
-
-  // Map: subsection module instance → parent section index (within topLevel)
-  const instanceToParent = new Map<number, number>();
-  topLevel.forEach((parent, idx) => {
-    parent.modules
-      .filter((m) => m.modname === "subsection")
-      .forEach((m) => instanceToParent.set(m.instance, idx));
-  });
-
-  // Build activityIds per parent module using lesson section tracked activities
-  const activityIdsByParent: number[][] = topLevel.map(() => []);
-  for (const lesson of lessonSections) {
-    if (!lesson.itemid) continue;
-    const parentIdx = instanceToParent.get(lesson.itemid);
-    if (parentIdx === undefined) continue;
-    const tracked = lesson.modules
-      .filter((m) => m.completion > 0)
-      .map((m) => m.id);
-    activityIdsByParent[parentIdx].push(...tracked);
-  }
-
-  return topLevel
-    .map((s, idx) => ({
-      moduleId: s.section,
-      moduleName: s.name,
-      activityIds: activityIdsByParent[idx],
-    }))
-    .filter((m) => m.activityIds.length > 0);
-}
-
-async function _fetchUserCompletion(
-  userId: number
-): Promise<MoodleCompletionStatus> {
-  try {
-    // Pass _attempt=3 to skip retries — this is called once per student so
-    // retrying would multiply failed requests by 4× and hammer an already
-    // struggling Moodle server. Errors are handled gracefully by the catch.
-    return await moodleCall<MoodleCompletionStatus>(
-      "core_completion_get_activities_completion_status",
-      { courseid: COURSE_ID, userid: userId },
-      3
-    );
-  } catch {
-    return { statuses: [] };
-  }
-}
-
-async function _fetchRawCompletions(): Promise<Record<string, number[]>> {
-  const students = await getCachedStudents();
-
-  // Students who have never accessed the course have zero completions by
-  // definition — skip them entirely to avoid thousands of wasted API calls.
-  const everActive = students.filter((s) => s.lastcourseaccess > 0);
-
-  console.log(
-    `[completions] fetching for ${everActive.length} / ${students.length} students (${students.length - everActive.length} never active, skipped)`
-  );
-
-  const completions = await batchProcess(
-    everActive.map((s) => s.id),
-    _fetchUserCompletion,
-    50
-  );
-
-  const result: Record<string, number[]> = {};
-  everActive.forEach((s, i) => {
-    const done: number[] = [];
-    (completions[i]?.statuses ?? []).forEach(({ cmid, state, tracking }) => {
-      if (tracking > 0 && state >= 1) done.push(cmid);
-    });
-    result[String(s.id)] = done;
-  });
-  // Never-active students are intentionally absent — makeCompletedByUser
-  // returns new Set() for any missing key, so callers see them as 0% complete.
-  return result;
-}
-
-async function _fetchQuizDetails(): Promise<CachedQuizDetail[]> {
-  try {
-    const res = await moodleCall<{ quizzes: Array<{ id: number; grade: number }> }>(
-      "mod_quiz_get_quizzes_by_courses",
-      { "courseids[0]": COURSE_ID }
-    );
-    return (res.quizzes ?? []).map((q) => ({ quizId: q.id, gradeMax: q.grade }));
-  } catch {
-    return [];
-  }
-}
-
-// ─── Exported cached getters ──────────────────────────────────────────────────
-
-export const getCachedStudents = unstable_cache(
-  _fetchAllStudents,
-  [`students-${COURSE_ID}`],
-  { revalidate: 3600 }
-);
-
-export const getCachedCourseModules = unstable_cache(
-  _fetchCourseModules,
-  [`course-modules-${COURSE_ID}`],
-  { revalidate: 3600 }
-);
-
-/** userId (string) → array of completed cmids */
-export const getCachedRawCompletions = unstable_cache(
-  _fetchRawCompletions,
-  [`completions-${COURSE_ID}`],
-  { revalidate: 3600 } // 1-hour TTL — completions change slowly; cold fetch takes ~8 min
-);
-
-/** Quiz details: instance id → gradeMax (from mod_quiz_get_quizzes_by_courses) */
-export const getCachedQuizDetails = unstable_cache(
-  _fetchQuizDetails,
-  [`quiz-details-${COURSE_ID}`],
-  { revalidate: 3600 }
-);
-
-// ─── Quiz instances (shared between list route and per-user quiz route) ────────
-
-export interface QuizInstance {
-  quizId: number;
-  moduleSection: number;
-  moduleName: string;
-}
-
-async function _fetchQuizInstances(): Promise<QuizInstance[]> {
-  const sections = await moodleCall<
-    Array<{
-      section: number;
-      name: string;
-      visible: 1 | 0;
-      component?: string | null;
-      itemid?: number | null;
-      modules: Array<{ id: number; instance: number; modname: string }>;
-    }>
-  >("core_course_get_contents", { courseid: COURSE_ID });
-
-  const instanceToModule = new Map<number, { section: number; sectionName: string }>();
-  sections
-    .filter((s) => s.component !== "mod_subsection")
-    .forEach((s) =>
-      s.modules
-        .filter((m) => m.modname === "subsection")
-        .forEach((m) =>
-          instanceToModule.set(m.instance, { section: s.section, sectionName: s.name })
-        )
-    );
-
-  const quizInstances: QuizInstance[] = [];
-  sections
-    .filter((s) => s.component === "mod_subsection" && !!s.itemid)
-    .forEach((s) => {
-      const parent = instanceToModule.get(s.itemid!);
-      if (!parent) return;
-      s.modules
-        .filter((m) => m.modname === "quiz")
-        .forEach((m) =>
-          quizInstances.push({
-            quizId: m.instance,
-            moduleSection: parent.section,
-            moduleName: parent.sectionName,
-          })
-        );
-    });
-
-  return quizInstances;
-}
-
-export const getCachedQuizInstances = unstable_cache(
-  _fetchQuizInstances,
-  [`quiz-instances-${COURSE_ID}`],
-  { revalidate: 3600 }
-);
-
-// ─── Hydration helpers ────────────────────────────────────────────────────────
-
-/** Reconstruct Map<userId, Set<cmid>> from the serialised cache format */
-export function makeCompletedByUser(
-  raw: Record<string, number[]>
-): Map<number, Set<number>> {
-  return new Map(Object.entries(raw).map(([k, v]) => [Number(k), new Set(v)]));
-}
-
 // ─── Shared computation ───────────────────────────────────────────────────────
 
-/**
- * Build the full FellowSummary array for all enrolled students.
- * All underlying data is served from cache — subsequent calls within the
- * 5-minute window are CPU-only (no Moodle network I/O).
- *
- * Note: avgQuizScore is 0 for all summaries because mod_quiz_get_user_best_grade
- * requires one call per (user × quiz) — infeasible at bulk scale. Real quiz
- * scores are only computed on the individual learner detail page.
- */
 export async function buildAllFellowSummaries(): Promise<FellowSummary[]> {
   const [students, courseModules, rawCompletions] = await Promise.all([
     getCachedStudents(),

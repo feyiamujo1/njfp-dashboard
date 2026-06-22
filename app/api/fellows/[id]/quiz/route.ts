@@ -90,11 +90,13 @@ async function _computeUserQuizStats(userId: number): Promise<{
 }
 
 // Cache per user for 1 hour — quiz scores change rarely during an active course.
-const computeUserQuizStats = unstable_cache(
-  _computeUserQuizStats,
-  [`quiz-stats-${COURSE_ID}`],
-  { revalidate: 3600 }
-);
+// Key includes userId so each user gets their own cache entry.
+const computeUserQuizStats = (userId: number) =>
+  unstable_cache(
+    () => _computeUserQuizStats(userId),
+    [`quiz-stats-${COURSE_ID}-${userId}`],
+    { revalidate: 3600 }
+  )();
 
 export async function GET(
   req: Request,
