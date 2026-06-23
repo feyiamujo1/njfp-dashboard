@@ -1,12 +1,14 @@
 "use client";
 
-import { Card, Row, Col, Progress, Skeleton, Result, Button, Tooltip, Table, Slider, Tag } from "antd";
-import { InfoCircleOutlined, DownloadOutlined } from "@ant-design/icons";
+import { Card, Row, Col, Progress, Skeleton, Result, Button, Tooltip, Table, Slider, Tag, Collapse, Segmented } from "antd";
+import { InfoCircleOutlined, DownloadOutlined, RightOutlined } from "@ant-design/icons";
 import { downloadCsv } from "@/lib/export";
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import {
   AreaChart, Area,
   BarChart, Bar,
+  Cell,
   XAxis, YAxis, CartesianGrid,
   Tooltip as ChartTooltip,
   Legend,
@@ -17,7 +19,7 @@ import FunnelChart from "@/components/charts/FunnelChart";
 import { useProgress } from "@/hooks/useProgress";
 import { useProgressCompletion } from "@/hooks/useProgressCompletion";
 import { CHART_COLORS } from "@/lib/constants";
-import type { DemCompletion } from "@/lib/types";
+import type { DemCompletion, ModuleActivityBreakdown, ActivityBreakdownItem } from "@/lib/types";
 
 function CardTitle({ title, hint }: { title: string; hint: string }) {
   return (
@@ -63,15 +65,82 @@ function demRows(rows: DemCompletion[]) {
 }
 const DEM_HEADERS = ["Group", "Enrolled", "Started", "Started %", "Midway", "Midway %", "Completed", "Completed %"];
 
+const BUCKET_COLORS = ["#DC2626", "#EA580C", "#CA8A04", "#A3E635", "#16A34A", "#1D4ED8"];
+
 export default function ModulesPage() {
   const { data: fast, isLoading, isError, error, refetch } = useProgress();
   const { data: slow, isLoading: slowLoading } = useProgressCompletion();
 
   const [topStates, setTopStates] = useState(15);
+  const [stateSortMode, setStateSortMode] = useState<"enrollment" | "completion">("enrollment");
 
-  const stateChartData = useMemo(
-    () => (slow?.completionByState ?? []).slice(0, topStates),
-    [slow?.completionByState, topStates]
+  const stateChartData = useMemo(() => {
+    const base = slow?.completionByState ?? [];
+    const sorted = stateSortMode === "completion"
+      ? [...base].sort((a, b) => b.completionPct - a.completionPct)
+      : base;
+    return sorted.slice(0, topStates);
+  }, [slow?.completionByState, topStates, stateSortMode]);
+
+  const activityBreakdownItems = useMemo(
+    () =>
+      (slow?.activityBreakdownByModule ?? []).map((mod: ModuleActivityBreakdown) => ({
+        key: String(mod.moduleId),
+        label: (
+          <span className="font-medium">
+            <span className="text-slate-400 mr-1.5">M{mod.moduleId}</span>
+            {mod.moduleName}
+            <span className="text-slate-400 text-xs ml-2">({mod.activities.length} activities)</span>
+          </span>
+        ),
+        extra: (
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              downloadCsv(
+                `activity-breakdown-m${mod.moduleId}.csv`,
+                ["Module", "Activity", "Type", "Completed (count)", "Completion %"],
+                mod.activities.map((a: ActivityBreakdownItem) => [
+                  mod.moduleName, a.name, a.modname, a.completedCount, a.completionPct,
+                ])
+              );
+            }}>
+            Export
+          </Button>
+        ),
+        children: (
+          <Table<ActivityBreakdownItem>
+            size="small"
+            dataSource={mod.activities}
+            rowKey="cmid"
+            pagination={false}
+            columns={[
+              { title: "Activity", dataIndex: "name", key: "name", render: (v: string) => <span className="font-medium">{v}</span> },
+              { title: "Type", dataIndex: "modname", key: "modname", width: 90,
+                render: (v: string) => <Tag>{v}</Tag> },
+              { title: "Completed", dataIndex: "completedCount", key: "completedCount", align: "right" as const,
+                render: (v: number) => v.toLocaleString() },
+              { title: "Completion %", dataIndex: "completionPct", key: "completionPct", align: "right" as const, width: 160,
+                render: (v: number) => (
+                  <div className="flex items-center gap-2">
+                    <Progress
+                      percent={v}
+                      showInfo={false}
+                      strokeColor={v >= 60 ? CHART_COLORS.success : v >= 30 ? CHART_COLORS.warning : CHART_COLORS.error}
+                      styles={{ rail: { background: "#f1f5f9" } }}
+                      size="small"
+                      style={{ flex: 1, minWidth: 60 }}
+                    />
+                    <span className="text-xs text-slate-600 w-8 text-right">{v}%</span>
+                  </div>
+                )},
+            ]}
+          />
+        ),
+      })),
+    [slow?.activityBreakdownByModule]
   );
 
   if (isError) {
@@ -125,6 +194,144 @@ export default function ModulesPage() {
             tooltip="Average % of all tracked course activities completed per fellow, including those who have never started. The figure among active learners only will be significantly higher."
           />
         </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <KPICard
+            title="100% Completers"
+            value={slow?.fullCompletedCount?.toLocaleString() ?? "—"}
+            loading={slowLoading}
+            valueColor="#16A34A"
+            tooltip="Fellows who have completed every single tracked activity in the course — true 100% completion across all modules, with nothing left outstanding."
+          />
+        </Col>
+      </Row>
+
+      {/* ── Completion Distribution & Quiz Participation ──────────────────────── */}
+      <SectionLabel>Completion Distribution</SectionLabel>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} lg={14} style={{ display: "flex", flexDirection: "column" }}>
+          <Card
+            title={
+              <CardTitle
+                title="Completion Distribution"
+                hint="How learners are spread across completion bands — from not started to 100% complete. Each bar shows how many fellows fall within that range of tracked activity completion."
+              />
+            }
+            style={{ flex: 1, display: "flex", flexDirection: "column" }}
+            styles={{ body: { flex: 1 } }}
+            extra={
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled={slowLoading || !slow?.completionBuckets?.length}
+                onClick={() =>
+                  downloadCsv(
+                    "completion-distribution.csv",
+                    ["Bucket", "Min %", "Max %", "Fellows (count)", "Fellows (%)"],
+                    (slow?.completionBuckets ?? []).map(b => [b.label, b.min, b.max, b.count, b.pct])
+                  )
+                }>
+                Export
+              </Button>
+            }
+          >
+            {slowLoading ? (
+              <Skeleton active paragraph={{ rows: 6 }} />
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart
+                  data={slow!.completionBuckets}
+                  margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => v.toLocaleString()} />
+                  <ChartTooltip
+                    formatter={(v: unknown, _: unknown, props: { payload?: { pct?: number } }) => [
+                      `${(v as number).toLocaleString()} fellows (${props.payload?.pct ?? 0}%)`,
+                      "Count",
+                    ]}
+                  />
+                  <Bar dataKey="count" name="Fellows" radius={[4, 4, 0, 0]} barSize={40}>
+                    {(slow!.completionBuckets).map((_, i) => (
+                      <Cell key={i} fill={BUCKET_COLORS[i % BUCKET_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={10} style={{ display: "flex", flexDirection: "column" }}>
+          <Card
+            title={
+              <CardTitle
+                title="Quiz Participation by Module"
+                hint="For each module that has a quiz, the number and % of enrolled fellows who have completed at least one quiz activity. This reflects quiz engagement, not quiz score."
+              />
+            }
+            style={{ flex: 1, display: "flex", flexDirection: "column" }}
+            styles={{ body: { flex: 1 } }}
+            extra={
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled={slowLoading || !slow?.quizParticipationByModule?.length}
+                onClick={() =>
+                  downloadCsv(
+                    "quiz-participation.csv",
+                    ["Module ID", "Module Name", "Participants", "Participation %"],
+                    (slow?.quizParticipationByModule ?? []).map(q => [
+                      q.moduleId, q.moduleName, q.participantCount, q.participationPct,
+                    ])
+                  )
+                }>
+                Export
+              </Button>
+            }
+          >
+            {slowLoading ? (
+              <Skeleton active paragraph={{ rows: 6 }} />
+            ) : slow!.quizParticipationByModule.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-8">No quiz activities detected in course structure.</p>
+            ) : (
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(240, slow!.quizParticipationByModule.length * 48)}
+              >
+                <BarChart
+                  data={slow!.quizParticipationByModule}
+                  layout="vertical"
+                  margin={{ left: 8, right: 48, top: 8, bottom: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}%`} />
+                  <YAxis
+                    type="category"
+                    dataKey="moduleName"
+                    width={120}
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(v: string) => v.split(" ")[0]}
+                  />
+                  <ChartTooltip
+                    formatter={(v: unknown, _: unknown, props: { payload?: { participantCount?: number } }) => [
+                      `${v}% (${(props.payload?.participantCount ?? 0).toLocaleString()} fellows)`,
+                      "Participation",
+                    ]}
+                    labelFormatter={(_: unknown, payload: ReadonlyArray<{ payload?: { moduleName?: string } }>) =>
+                      payload?.[0]?.payload?.moduleName ?? ""
+                    }
+                  />
+                  <Bar dataKey="participationPct" name="Quiz Participation %" radius={[0, 4, 4, 0]} barSize={20}>
+                    {slow!.quizParticipationByModule.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS.modules[i % CHART_COLORS.modules.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+        </Col>
       </Row>
 
       {/* ── Module Progress + Funnel ────────────────────────────────────────── */}
@@ -166,10 +373,14 @@ export default function ModulesPage() {
                   return (
                     <div key={m.moduleId}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium text-slate-700">
-                          <span className="text-slate-400 mr-1.5">M{m.moduleId}</span>
+                        <Link
+                          href={`/dashboard/modules/${m.moduleId}`}
+                          className="group flex items-center gap-1.5 text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+                        >
+                          <span className="text-slate-400 group-hover:text-blue-400 mr-0.5">M{m.moduleId}</span>
                           {m.moduleName}
-                        </span>
+                          <RightOutlined className="text-[10px] text-slate-300 group-hover:text-blue-500 transition-colors" />
+                        </Link>
                         <span className="text-sm text-slate-500">
                           {m.completedCount.toLocaleString()} / {m.totalFellows.toLocaleString()} ·{" "}
                           <span style={{ color }} className="font-semibold">
@@ -274,6 +485,46 @@ export default function ModulesPage() {
               />
             </AreaChart>
           </ResponsiveContainer>
+        )}
+      </Card>
+
+      {/* ── Activity Breakdown by Module ──────────────────────────────────────── */}
+      <SectionLabel>Activity Completion Breakdown</SectionLabel>
+      <Card
+        title={
+          <CardTitle
+            title="Activity Completion by Module"
+            hint="Per-activity completion rates across all enrolled fellows. Expand a module to see how many learners completed each individual activity — useful for spotting which specific items learners skip or drop."
+          />
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={slowLoading || !slow?.activityBreakdownByModule?.length}
+            onClick={() =>
+              downloadCsv(
+                "activity-breakdown-all.csv",
+                ["Module ID", "Module Name", "Activity", "Type", "Completed (count)", "Completion %"],
+                (slow?.activityBreakdownByModule ?? []).flatMap(mod =>
+                  mod.activities.map((a: ActivityBreakdownItem) => [
+                    mod.moduleId, mod.moduleName, a.name, a.modname, a.completedCount, a.completionPct,
+                  ])
+                )
+              )
+            }>
+            Export All
+          </Button>
+        }
+      >
+        {slowLoading ? (
+          <Skeleton active paragraph={{ rows: 10 }} />
+        ) : (
+          <Collapse
+            ghost
+            items={activityBreakdownItems}
+            expandIconPosition="start"
+          />
         )}
       </Card>
 
@@ -389,7 +640,7 @@ export default function ModulesPage() {
         title={
           <CardTitle
             title="Funnel by State"
-            hint="Started, midway, and completed counts per state of origin. Use the slider to focus on the top states by enrolment."
+            hint="Started, midway, and completed counts per state of origin. Toggle between sorting by enrollment count or by completion rate. Use the slider to focus on the top states."
           />
         }
         extra={
@@ -404,18 +655,29 @@ export default function ModulesPage() {
           <Skeleton active paragraph={{ rows: 10 }} />
         ) : (
           <>
-            <div className="flex items-center gap-4 mb-4">
-              <span className="text-sm text-slate-500 whitespace-nowrap">
-                Top {topStates} of {(slow?.completionByState?.length ?? 0)} states
-              </span>
-              <Slider
-                min={5}
-                max={Math.min((slow?.completionByState?.length ?? 0), 37)}
-                value={topStates}
-                onChange={setTopStates}
-                className="flex-1"
-                tooltip={{ formatter: (v) => `Top ${v}` }}
-              />
+            <div className="flex flex-wrap items-center gap-4 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 whitespace-nowrap">Sort by:</span>
+                <Segmented
+                  size="small"
+                  options={["Enrollment", "Completion %"]}
+                  value={stateSortMode === "enrollment" ? "Enrollment" : "Completion %"}
+                  onChange={(v) => setStateSortMode(v === "Enrollment" ? "enrollment" : "completion")}
+                />
+              </div>
+              <div className="flex items-center gap-3 flex-1 min-w-48">
+                <span className="text-sm text-slate-500 whitespace-nowrap">
+                  Top {topStates} of {(slow?.completionByState?.length ?? 0)} states
+                </span>
+                <Slider
+                  min={5}
+                  max={Math.min((slow?.completionByState?.length ?? 0), 37)}
+                  value={topStates}
+                  onChange={setTopStates}
+                  className="flex-1"
+                  tooltip={{ formatter: (v) => `Top ${v}` }}
+                />
+              </div>
             </div>
             <ResponsiveContainer width="100%" height={Math.max(300, topStates * 36)}>
               <BarChart
@@ -424,17 +686,40 @@ export default function ModulesPage() {
                 margin={{ left: 8, right: 60, top: 8, bottom: 8 }}
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
+                {stateSortMode === "enrollment" ? (
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
+                ) : (
+                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}%`} />
+                )}
                 <YAxis type="category" dataKey="label" width={130} tick={{ fontSize: 11 }} />
-                <ChartTooltip formatter={(v: unknown, name: unknown) => [`${v}`, name as string]} />
+                <ChartTooltip
+                  formatter={(v: unknown, name: unknown) =>
+                    stateSortMode === "enrollment"
+                      ? [`${(v as number).toLocaleString()}`, name as string]
+                      : [`${v}%`, name as string]
+                  }
+                />
                 <Legend />
-                <Bar dataKey="started" name="Started" fill="#60a5fa" radius={[0, 4, 4, 0]} barSize={16} />
-                <Bar dataKey="completed" name="Completed" fill="#22c55e" radius={[0, 4, 4, 0]} barSize={16} />
+                {stateSortMode === "enrollment" ? (
+                  <>
+                    <Bar dataKey="started" name="Started" fill="#60a5fa" radius={[0, 4, 4, 0]} barSize={16} />
+                    <Bar dataKey="completed" name="Completed" fill="#22c55e" radius={[0, 4, 4, 0]} barSize={16} />
+                  </>
+                ) : (
+                  <>
+                    <Bar dataKey="startedPct" name="Started %" fill="#60a5fa" radius={[0, 4, 4, 0]} barSize={16} />
+                    <Bar dataKey="completionPct" name="Completed %" fill="#22c55e" radius={[0, 4, 4, 0]} barSize={16} />
+                  </>
+                )}
               </BarChart>
             </ResponsiveContainer>
             <Table<DemCompletion>
               size="small"
-              dataSource={(slow?.completionByState ?? [])}
+              dataSource={
+                stateSortMode === "completion"
+                  ? [...(slow?.completionByState ?? [])].sort((a, b) => b.completionPct - a.completionPct)
+                  : slow?.completionByState ?? []
+              }
               rowKey="label"
               pagination={{ pageSize: 10, showSizeChanger: false, showTotal: (t) => `${t} states` }}
               className="mt-4"

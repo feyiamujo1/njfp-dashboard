@@ -44,8 +44,11 @@ export async function GET() {
       return { moduleId: mod.moduleId, moduleName: mod.moduleName, views };
     });
 
+    const now = Date.now() / 1000;
+
     // Risk stats + demographic activity breakdowns — single pass
     let inactiveOver7 = 0, inactiveOver14 = 0, notStartedCount = 0;
+    let activeNotStarted = 0, loginNotEngaged = 0, neverAccessedCourse = 0;
     let activeCount = 0, atRiskCount = 0, inactiveCount = 0;
 
     const byGender: Record<string, ActivityGroup> = {};
@@ -58,7 +61,16 @@ export async function GET() {
       else inactiveCount++;
       if (f.daysSinceActive > 7) inactiveOver7++;
       if (f.daysSinceActive > 14) inactiveOver14++;
-      if (f.completionPct === 0) notStartedCount++;
+      if (f.completionPct === 0) {
+        notStartedCount++;
+        if (!f.lastcourseaccess) neverAccessedCourse++;
+        // accessed within 7 days but completed nothing — enrolled and showing up but not engaging
+        if (f.lastcourseaccess && now - f.lastcourseaccess < 7 * 86400) activeNotStarted++;
+      }
+      // logged in to Moodle recently but hasn't opened this course in 14+ days
+      if (f.lastaccess && now - f.lastaccess < 7 * 86400) {
+        if (!f.lastcourseaccess || now - f.lastcourseaccess > 14 * 86400) loginNotEngaged++;
+      }
 
       const g = normalizeGender(f.gender);
       const r = normalizeRegion(f.region);
@@ -102,6 +114,9 @@ export async function GET() {
         inactiveOver7Days: inactiveOver7,
         inactiveOver14Days: inactiveOver14,
         notStartedCount,
+        activeNotStarted,
+        loginNotEngaged,
+        neverAccessedCourse,
         distribution: { active: activeCount, atRisk: atRiskCount, inactive: inactiveCount },
         fellows,
       },

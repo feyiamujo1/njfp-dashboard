@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { moodleCall } from "@/lib/moodle";
+import { supabase } from "@/integration/supabase/server";
 import { COURSE_ID } from "@/lib/constants";
 
 interface MoodleModule {
   id: number;
-  instance: number; // used to link subsection modules to their section
+  instance: number;
   name: string;
   modname: string;
   completion: number;
@@ -19,11 +19,7 @@ interface MoodleSection {
   section: number;
   summary?: string;
   modules: MoodleModule[];
-  // null  → top-level section (Module 1-7, Course Intro, Mentorship Track, etc.)
-  // "mod_subsection" → this section IS a lesson; it is a child of a top-level section
   component?: string | null;
-  // when component === "mod_subsection", itemid equals the instance of the
-  // subsection module inside the parent section that links to this lesson section
   itemid?: number | null;
 }
 
@@ -47,24 +43,29 @@ function buildSectionData(s: MoodleSection) {
   };
 }
 
-export const maxDuration = 120;
-
 export async function GET() {
   try {
-    const sections = await moodleCall<MoodleSection[]>("core_course_get_contents", {
-      courseid: COURSE_ID,
-    });
+    const { data, error } = await supabase
+      .from("course_structure")
+      .select("sections")
+      .eq("course_id", COURSE_ID)
+      .single();
 
+    if (error || !data) {
+      return NextResponse.json(
+        { error: "Course structure not yet synced. Run /api/sync first." },
+        { status: 503 }
+      );
+    }
+
+    const sections = data.sections as MoodleSection[];
     const visible = sections.filter((s) => s.visible === 1);
 
     type SectionData = ReturnType<typeof buildSectionData>;
     type ParentSection = SectionData & { subSections: SectionData[] };
 
-    // Split: top-level sections vs subsection-sections (actual lesson content)
     const topLevel: ParentSection[] = [];
     const childSections: MoodleSection[] = [];
-
-    // instance → { parentIdx in topLevel, display order within that parent }
     const instanceToParent = new Map<number, { parentIdx: number; order: number }>();
 
     for (const s of visible) {
@@ -74,7 +75,6 @@ export async function GET() {
         const parentIdx = topLevel.length;
         topLevel.push({ ...buildSectionData(s), subSections: [] });
 
-        // Register each subsection module in this parent so we can link back
         let subsectionOrder = 0;
         for (const m of s.modules) {
           if (m.visible !== 0 && m.modname === "subsection") {
@@ -84,12 +84,10 @@ export async function GET() {
       }
     }
 
-    // Assign each lesson section to its parent via itemid → subsection module instance
     const assignable = childSections.filter(
       (c) => c.itemid != null && instanceToParent.has(c.itemid!)
     );
 
-    // Sort by parent first, then by the module order within that parent
     assignable.sort((a, b) => {
       const aMap = instanceToParent.get(a.itemid!)!;
       const bMap = instanceToParent.get(b.itemid!)!;

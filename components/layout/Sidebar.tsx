@@ -37,7 +37,7 @@ const NAV_ITEMS = [
   {
     key: "/dashboard/engagement",
     icon: <ThunderboltOutlined />,
-    label: <Link href="/dashboard/engagement">Learner Activity</Link>,
+    label: <Link href="/dashboard/engagement">Learner Engagement</Link>,
   },
 ];
 

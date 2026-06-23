@@ -16,7 +16,7 @@ export async function moodleCall<T>(
   });
 
   const res = await fetch(`${base}/webservice/rest/server.php?${query}`, {
-    next: { revalidate: 300 },
+    cache: "no-store",
   });
 
   const contentType = res.headers.get("content-type") ?? "";

@@ -55,9 +55,11 @@ async function upsertBatch<T extends Record<string, unknown>>(
   onConflict: string
 ): Promise<void> {
   for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH) as unknown as object[];
     const { error } = await supabase
       .from(table)
-      .upsert(rows.slice(i, i + BATCH), { onConflict });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .upsert(batch as any, { onConflict });
     if (error) throw new Error(`[sync] ${table} upsert failed: ${error.message}`);
   }
 }

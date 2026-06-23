@@ -54,18 +54,22 @@ export async function GET(
     const completionPct =
       totalActivities > 0 ? Math.round((totalDone / totalActivities) * 100) : 0;
 
-    const engagementScore = Math.min(100, Math.round(completionPct * 0.7));
-
     const daysSinceActive = student.lastcourseaccess
       ? Math.floor((Date.now() / 1000 - student.lastcourseaccess) / 86400)
       : 999;
 
+    // Learners who have substantially completed the course (≥80%) are treated as
+    // active regardless of last-access time — they've finished, not dropped out.
     const riskLevel: RiskLevel =
-      !student.lastcourseaccess || daysSinceActive > 14
+      completionPct >= 80
+        ? "active"
+        : !student.lastcourseaccess || daysSinceActive > 14
         ? "inactive"
         : daysSinceActive > 7 || completionPct < 25
         ? "at_risk"
         : "active";
+
+    const engagementScore = completionPct;
 
     return NextResponse.json({
       id: student.id,

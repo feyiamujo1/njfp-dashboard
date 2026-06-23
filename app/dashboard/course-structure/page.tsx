@@ -13,7 +13,9 @@ import {
   FolderOpenOutlined,
   InfoCircleOutlined,
   DownloadOutlined,
+  BarChartOutlined,
 } from "@ant-design/icons";
+import Link from "next/link";
 import { downloadCsv } from "@/lib/export";
 import { useCourseStructure } from "@/hooks/useCourseStructure";
 import type { CourseModule, CourseSection } from "@/hooks/useCourseStructure";
@@ -234,6 +236,16 @@ export default function CourseStructurePage() {
                 {sec.trackedCount} tracked
               </Tag>
             )}
+            {sec.section > 0 && (
+              <Link
+                href={`/dashboard/modules/${sec.section}`}
+                onClick={(e) => e.stopPropagation()}
+                className="hidden sm:inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium border border-blue-200 hover:border-blue-400 rounded px-2 py-0.5 transition-colors bg-white"
+              >
+                <BarChartOutlined />
+                Stats
+              </Link>
+            )}
           </div>
         </div>
       ),
@@ -261,14 +273,6 @@ export default function CourseStructurePage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <Alert
-          type="info"
-          showIcon
-          description="Live from the NJFP Moodle LMS. Tracked items count toward each learner's completion percentage."
-        />
-      </div>
-
       <Card
         extra={
           <Button

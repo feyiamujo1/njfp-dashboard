@@ -1,14 +1,14 @@
-import type { Fellow, FellowDetail, FellowQuizDetail } from "@/lib/types";
+import type { Fellow, FellowSummary, FellowDetail, FellowQuizDetail } from "@/lib/types";
 
 export const fellowService = {
-  async getFellowList(): Promise<Fellow[]> {
+  async getFellowList(): Promise<FellowSummary[]> {
     const res = await fetch("/api/fellows", { cache: "no-store" });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
     }
     const { fellows } = await res.json();
-    return fellows as Fellow[];
+    return fellows as FellowSummary[];
   },
 
   async getFellowDetail(id: number, lastCourseAccess?: number): Promise<FellowDetail | null> {

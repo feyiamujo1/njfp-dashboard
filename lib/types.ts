@@ -110,6 +110,9 @@ export interface LearnerActivityStats {
     inactiveOver7Days: number;
     inactiveOver14Days: number;
     notStartedCount: number;
+    activeNotStarted: number;
+    loginNotEngaged: number;
+    neverAccessedCourse: number;
     distribution: { active: number; atRisk: number; inactive: number };
     fellows: FellowSummary[];
   };
@@ -135,14 +138,90 @@ export interface DemCompletion {
   completionPct: number;
 }
 
+export interface CompletionBucket {
+  label: string;
+  min: number;
+  max: number;
+  count: number;
+  pct: number;
+}
+
+export interface ActivityBreakdownItem {
+  cmid: number;
+  name: string;
+  modname: string;
+  completedCount: number;
+  completionPct: number;
+}
+
+export interface ModuleActivityBreakdown {
+  moduleId: number;
+  moduleName: string;
+  totalStudents: number;
+  activities: ActivityBreakdownItem[];
+}
+
+export interface QuizParticipation {
+  moduleId: number;
+  moduleName: string;
+  participantCount: number;
+  participationPct: number;
+}
+
+export interface ModuleDemBreakdown {
+  label: string;
+  total: number;
+  completed: number;
+  completionPct: number;
+}
+
+export interface ModuleStudentSummary {
+  id: number;
+  fullname: string;
+  email: string;
+  profileimageurl: string;
+  gender: string | null;
+  state: string | null;
+  lga: string | null;
+  region: string | null;
+  lastcourseaccess: number;
+  activitiesDone: number;
+  totalActivities: number;
+  completionPct: number;
+  status: "completed" | "in_progress" | "not_started";
+}
+
+export interface ModuleDetailStats {
+  moduleId: number;
+  moduleName: string;
+  totalEnrolled: number;
+  notStartedCount: number;
+  inProgressCount: number;
+  completedCount: number;
+  completedPct: number;
+  startedPct: number;
+  hasQuiz: boolean;
+  quizParticipantCount: number;
+  quizParticipationPct: number;
+  activities: ActivityBreakdownItem[];
+  completionByGender: ModuleDemBreakdown[];
+  completionByRegion: ModuleDemBreakdown[];
+  completionByState: ModuleDemBreakdown[];
+  students: ModuleStudentSummary[];
+}
+
 /** Slow path — completion cache (~30-min TTL). */
 export interface ProgressCompletionStats {
   startedPct: number;
   completedPct: number;
   avgCompletionRate: number;
+  fullCompletedCount: number;
   moduleProgress: ModuleProgress[];
   funnel: { stage: string; count: number; pct: number }[];
   dropOff: { moduleId: number; moduleName: string; activePct: number }[];
+  completionBuckets: CompletionBucket[];
+  quizParticipationByModule: QuizParticipation[];
+  activityBreakdownByModule: ModuleActivityBreakdown[];
   completionByGender: DemCompletion[];
   completionByRegion: DemCompletion[];
   completionByState: DemCompletion[];

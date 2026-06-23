@@ -5,6 +5,7 @@ import type {
   ProgressCompletionStats,
   EngagementStats,
   LearnerActivityStats,
+  ModuleDetailStats,
 } from "@/lib/types";
 
 export interface OverviewData {
@@ -29,4 +30,6 @@ export const dashboardService = {
   getProgressCompletion: () => fetchJson<ProgressCompletionStats>("/api/dashboard/progress/completion"),
   getEngagement: () => fetchJson<EngagementStats>("/api/dashboard/engagement"),
   getLearnerActivity: () => fetchJson<LearnerActivityStats>("/api/dashboard/engagement/completion"),
+  getModuleDetail: (moduleId: number) =>
+    fetchJson<ModuleDetailStats>(`/api/dashboard/modules/${moduleId}`),
 };

@@ -3,10 +3,16 @@ import {
   getCachedStudents,
   getCachedCourseModules,
   getCachedRawCompletions,
+  getCachedModuleActivityDetails,
   makeCompletedByUser,
 } from "@/lib/server/sharedData";
-import type { DemCompletion } from "@/lib/types";
 import { normalizeGender, normalizeRegion, normalizeState } from "@/lib/util";
+import type {
+  DemCompletion,
+  CompletionBucket,
+  ModuleActivityBreakdown,
+  QuizParticipation,
+} from "@/lib/types";
 
 export const maxDuration = 120;
 
@@ -27,12 +33,31 @@ function groupToArray(map: Record<string, DemGroup>): DemCompletion[] {
     .sort((a, b) => b.total - a.total);
 }
 
+const BUCKETS: { label: string; min: number; max: number }[] = [
+  { label: "Not Started (0%)", min: 0,   max: 0   },
+  { label: "1–25%",            min: 1,   max: 25  },
+  { label: "26–50%",           min: 26,  max: 50  },
+  { label: "51–75%",           min: 51,  max: 75  },
+  { label: "76–99%",           min: 76,  max: 99  },
+  { label: "Completed (100%)", min: 100, max: 100 },
+];
+
+function bucketIndex(pct: number): number {
+  if (pct === 0)   return 0;
+  if (pct <= 25)   return 1;
+  if (pct <= 50)   return 2;
+  if (pct <= 75)   return 3;
+  if (pct < 100)   return 4;
+  return 5;
+}
+
 export async function GET() {
   try {
-    const [students, courseModules, rawCompletions] = await Promise.all([
+    const [students, courseModules, rawCompletions, activityDetails] = await Promise.all([
       getCachedStudents(),
       getCachedCourseModules(),
       getCachedRawCompletions(),
+      getCachedModuleActivityDetails(),
     ]);
 
     const total = students.length;
@@ -42,7 +67,11 @@ export async function GET() {
     const midwayModuleIdx = Math.floor(courseModules.length / 2);
     const midwayMod = courseModules[midwayModuleIdx];
 
-    // Per-module strict completion (every activity done)
+    // Per-activity completion counters (cmid → count)
+    const cmidCount = new Map<number, number>();
+    activityDetails.forEach(mod => mod.activities.forEach(a => cmidCount.set(a.cmid, 0)));
+
+    // Per-module strict completion
     const moduleProgress = courseModules.map((mod) => {
       const completedCount =
         mod.activityIds.length === 0
@@ -60,11 +89,13 @@ export async function GET() {
       };
     });
 
-    // Single pass for scalar stats + demographic breakdowns
-    let startedCount = 0, midwayCount = 0, completedCount = 0, totalCompletionPctSum = 0;
+    // Single pass over all students
+    let startedCount = 0, midwayCount = 0, completedCount = 0, fullCompletedCount = 0;
+    let totalCompletionPctSum = 0;
     const byGender: Record<string, DemGroup> = {};
     const byRegion: Record<string, DemGroup> = {};
     const byState: Record<string, DemGroup> = {};
+    const bucketCounts = BUCKETS.map(b => ({ ...b, count: 0 }));
 
     students.forEach((s) => {
       const done = completedByUser.get(s.id) ?? new Set<number>();
@@ -81,26 +112,33 @@ export async function GET() {
         (m) => m.activityIds.length > 0 && m.activityIds.every((id) => done.has(id))
       ).length;
       const isCompleted = modulesFinished >= halfModules;
+      const isFullyDone = totalActivities > 0 && doneCount === totalActivities;
 
       if (isStarted) startedCount++;
       if (isMidway) midwayCount++;
       if (isCompleted) completedCount++;
+      if (isFullyDone) fullCompletedCount++;
       totalCompletionPctSum += totalActivities > 0 ? (doneCount / totalActivities) * 100 : 0;
+
+      const pct = totalActivities > 0 ? Math.round((doneCount / totalActivities) * 100) : 0;
+      bucketCounts[bucketIndex(pct)].count++;
+
+      // Per-activity completion counts
+      done.forEach(cmid => {
+        if (cmidCount.has(cmid)) cmidCount.set(cmid, (cmidCount.get(cmid) ?? 0) + 1);
+      });
 
       // Demographic tracking
       const g = normalizeGender(s.gender);
       const r = normalizeRegion(s.region);
       const st = normalizeState(s.state);
-
       for (const [map, key] of [
-        [byGender, g],
-        [byRegion, r],
-        [byState, st],
+        [byGender, g], [byRegion, r], [byState, st],
       ] as [Record<string, DemGroup>, string][]) {
         if (!map[key]) map[key] = { total: 0, started: 0, midway: 0, completed: 0 };
         map[key].total++;
-        if (isStarted) map[key].started++;
-        if (isMidway) map[key].midway++;
+        if (isStarted)  map[key].started++;
+        if (isMidway)   map[key].midway++;
         if (isCompleted) map[key].completed++;
       }
     });
@@ -109,15 +147,52 @@ export async function GET() {
     const completedPct = total > 0 ? Math.round((completedCount / total) * 100) : 0;
     const avgCompletionRate = total > 0 ? Math.round(totalCompletionPctSum / total) : 0;
 
+    const completionBuckets: CompletionBucket[] = bucketCounts.map(b => ({
+      ...b,
+      pct: total > 0 ? Math.round((b.count / total) * 100) : 0,
+    }));
+
+    // Activity breakdown per module — completion rate for each tracked activity
+    const activityBreakdownByModule: ModuleActivityBreakdown[] = activityDetails.map(mod => ({
+      moduleId: mod.moduleId,
+      moduleName: mod.moduleName,
+      totalStudents: total,
+      activities: mod.activities.map(a => {
+        const completedCount = cmidCount.get(a.cmid) ?? 0;
+        return {
+          cmid: a.cmid,
+          name: a.name,
+          modname: a.modname,
+          completedCount,
+          completionPct: total > 0 ? Math.round((completedCount / total) * 100) : 0,
+        };
+      }),
+    }));
+
+    // Quiz participation — filter to quiz-type activities only
+    const quizParticipationByModule: QuizParticipation[] = activityDetails
+      .map(mod => {
+        const quizActs = mod.activities.filter(a => a.modname === "quiz");
+        if (quizActs.length === 0) return null;
+        // Sum across all quizzes in a module (usually 1, but guard for multiples)
+        const participantCount = Math.max(...quizActs.map(a => cmidCount.get(a.cmid) ?? 0));
+        return {
+          moduleId: mod.moduleId,
+          moduleName: mod.moduleName,
+          participantCount,
+          participationPct: total > 0 ? Math.round((participantCount / total) * 100) : 0,
+        };
+      })
+      .filter((x): x is QuizParticipation => x !== null);
+
     const midwayLabel = midwayMod ? `Midway (M${midwayModuleIdx + 1}+)` : "Midway";
     const funnel = [
-      { stage: "Enrolled", count: total, pct: 100 },
-      { stage: "Started", count: startedCount, pct: startedPct },
-      { stage: midwayLabel, count: midwayCount, pct: total > 0 ? Math.round((midwayCount / total) * 100) : 0 },
-      { stage: "Completed", count: completedCount, pct: completedPct },
+      { stage: "Enrolled",    count: total,          pct: 100 },
+      { stage: "Started",     count: startedCount,   pct: startedPct },
+      { stage: midwayLabel,   count: midwayCount,    pct: total > 0 ? Math.round((midwayCount  / total) * 100) : 0 },
+      { stage: "Completed",   count: completedCount, pct: completedPct },
     ];
 
-    // Drop-off: % of enrolled who started each module (≥1 activity done).
     const dropOff = courseModules.map((mod) => {
       const startedModuleCount = students.filter((s) => {
         const done = completedByUser.get(s.id) ?? new Set<number>();
@@ -132,7 +207,11 @@ export async function GET() {
 
     return NextResponse.json({
       startedPct, completedPct, avgCompletionRate,
+      fullCompletedCount,
       moduleProgress, funnel, dropOff,
+      completionBuckets,
+      quizParticipationByModule,
+      activityBreakdownByModule,
       completionByGender: groupToArray(byGender),
       completionByRegion: groupToArray(byRegion),
       completionByState: groupToArray(byState),

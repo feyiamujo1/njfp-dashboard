@@ -2,7 +2,9 @@
 
 ## Overview
 
-A Next.js 15 analytics dashboard for the NJFP Entrepreneurship Training programme. It surfaces live Moodle LMS data across course progress, learner engagement, assessments, mentorship, and risk monitoring.
+A Next.js 16 analytics dashboard for the NJFP Entrepreneurship Training programme. It surfaces data from the Moodle LMS across course progress, learner engagement, assessments, and risk monitoring.
+
+Data is served from **Supabase** (PostgreSQL), kept fresh by a background sync job that runs every 2 hours. The dashboard never calls Moodle directly — all Moodle data flows through the sync pipeline.
 
 ---
 
@@ -10,28 +12,207 @@ A Next.js 15 analytics dashboard for the NJFP Entrepreneurship Training programm
 
 | Layer | Library |
 |---|---|
-| Framework | Next.js 15 (App Router) |
+| Framework | Next.js 16 (App Router) |
 | UI | Ant Design v6 |
 | Charts | Recharts v3 |
 | Data fetching | TanStack Query v5 |
 | CSS | Tailwind CSS v4 |
 | Runtime types | TypeScript |
+| Persistence | Supabase (PostgreSQL) |
+| Sync scheduling | Supabase Edge Functions + pg_cron |
+| Hosting | Netlify |
 
 ---
 
 ## Environment Variables (`.env.local`)
 
 ```
-NEXT_MOODLE_BASE_URL=https://lms.njfp.ng
-NEXT_MOODLE_TOKEN=<token>
-NEXT_COURSE_ID=6
+NEXT_MOODLE_BASE_URL=https://your-moodle-domain.com
+NEXT_MOODLE_TOKEN=<webservice-token>
+NEXT_COURSE_ID=<course-id>
+
+NEXT_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+
+SYNC_SECRET=<random-hex-string>
+```
+
+Never commit `.env.local`. Never expose these values in code, logs, or documentation.
+
+---
+
+## Architecture
+
+```
+Moodle LMS
+    │  core_enrol_get_enrolled_users
+    │  core_course_get_contents
+    │  core_completion_get_activities_completion_status
+    │  mod_quiz_get_quizzes_by_courses
+    ▼
+Supabase Edge Function (sync, every 2 hours via pg_cron)
+    │  upserts all data
+    ▼
+Supabase PostgreSQL (7 tables)
+    │  fast reads (~200ms)
+    ▼
+Next.js API Routes (/app/api/)
+    │
+    ▼
+TanStack Query hooks → React UI
+```
+
+### Data layer: `lib/server/sharedData.ts`
+
+All API routes read from Supabase through functions in `sharedData.ts`. These replaced the former `unstable_cache` + Moodle-call pattern. Function names and return types are unchanged so route files required no modification.
+
+| Function | Source table | Notes |
+|---|---|---|
+| `getCachedStudents()` | `students` | Includes demographics (state, lga, region, gender) |
+| `getCachedCourseModules()` | `course_modules` | Module → tracked activityIds mapping |
+| `getCachedRawCompletions()` | `completions` | userId → completed cmids |
+| `getCachedQuizDetails()` | `quiz_details` | quizId → gradeMax |
+| `getCachedQuizInstances()` | `quiz_instances` | quizId → moduleSection |
+| `buildAllFellowSummaries()` | All of above | Full FellowSummary[] for list/analytics views |
+
+`MAX_ROWS = 50_000` is a constant used on every `.limit()` call. It must be ≤ the **Max Rows** setting in **Supabase Dashboard → Settings → API** (set that to 50000).
+
+---
+
+## Supabase Database Schema
+
+### Tables
+
+**`students`**
+```
+id             integer PRIMARY KEY
+fullname       text
+email          text
+lastaccess     integer       (unix timestamp — general Moodle login)
+lastcourseaccess integer     (unix timestamp — last access to this course)
+profileimageurl text
+gender         text
+state          text
+lga            text
+region         text
+```
+
+**`completions`**
+```
+user_id          integer PRIMARY KEY
+completed_cmids  integer[]     (JSONB array of completed course module IDs)
+```
+Only rows for students who have started the course exist here. A missing row = 0% completion.
+
+**`course_modules`**
+```
+module_id    integer PRIMARY KEY
+module_name  text
+activity_ids integer[]    (tracked cmids — completion > 0 only)
+```
+
+**`quiz_details`**
+```
+quiz_id    integer PRIMARY KEY
+grade_max  numeric
+```
+
+**`quiz_instances`**
+```
+quiz_id        integer PRIMARY KEY
+module_section integer
+module_name    text
+```
+
+**`course_structure`**
+```
+id       integer PRIMARY KEY    (always 1 — single row)
+sections jsonb                  (raw core_course_get_contents response)
+synced_at timestamptz
+```
+
+**`sync_log`**
+```
+id             serial PRIMARY KEY
+started_at     timestamptz
+finished_at    timestamptz
+status         text ('success' | 'error')
+students_count integer
+completions_count integer
+error_message  text
+```
+
+### RLS
+
+All tables have RLS enabled with no permissive policies. Only the service role key can read/write. Never use the anon key for dashboard operations.
+
+---
+
+## Sync Service
+
+### Entry points
+
+- **`integration/supabase/sync.ts`** — Next.js compatible. Called by `POST /api/sync`. Use for manual triggers and local testing.
+- **`integration/supabase/functions/sync/index.ts`** — Deno Edge Function. Deployed to Supabase. Identical logic but self-contained (no project imports, uses `https://esm.sh/` for dependencies).
+
+### Sync steps (in order)
+
+1. **Students** — `core_enrol_get_enrolled_users` paginated (1,000/page). Filter to `roles[].shortname === "student"`. Upsert into `students`.
+2. **Course modules** — `core_course_get_contents` (fetched ONCE, shared across steps 2–4). Parse flat section list into 7 modules with tracked `activityIds`.
+3. **Quiz instances** — derived from course contents (quiz cmids → parent module section).
+4. **Course structure** — raw JSON stored in `course_structure` (single row, id=1).
+5. **Quiz details** — `mod_quiz_get_quizzes_by_courses`. Upsert `quiz_details`.
+6. **Completions** — `core_completion_get_activities_completion_status` per user. Batched 50 at a time. Only students with `lastcourseaccess > 0` are queried (active students). Uses `_attempt=3` to disable Moodle retries per-call.
+7. **sync_log** — write status row.
+
+Each step uses `upsertBatch()` with `BATCH = 500` and `onConflict` for idempotency.
+
+### Manual sync trigger
+
+```bash
+# Local
+curl -X POST http://localhost:3000/api/sync \
+  -H "Authorization: Bearer <SYNC_SECRET>"
+
+# Production Edge Function
+curl -X POST https://<project-ref>.supabase.co/functions/v1/sync \
+  -H "x-sync-secret: <SYNC_SECRET>"
+```
+
+`/api/sync` accepts both `GET` and `POST`. The Edge Function requires only `x-sync-secret` (JWT verification disabled on the function).
+
+---
+
+## Cron Schedule
+
+pg_cron + pg_net inside Supabase fires the Edge Function every 2 hours:
+
+```sql
+SELECT cron.schedule(
+  'njfp-moodle-sync',
+  '0 */2 * * *',
+  $$
+    SELECT net.http_post(
+      url      := 'https://<project-ref>.supabase.co/functions/v1/sync',
+      headers  := '{"Content-Type":"application/json","x-sync-secret":"<SYNC_SECRET>"}'::jsonb,
+      body     := '{}'::jsonb
+    ) AS request_id;
+  $$
+);
+```
+
+Required extensions: `pg_cron` (schema: `pg_catalog`) and `pg_net` (schema: `extensions`). Enable both in **Supabase Dashboard → Database → Extensions** before running the SQL above.
+
+To inspect runs:
+```sql
+SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
 ```
 
 ---
 
 ## Course Structure
 
-The LMS course (ID 6) has 7 modules in sections 1–7 of `core_course_get_contents`. Section 0 is the Course Introduction and is skipped in all computations.
+The LMS course has 7 modules in sections 1–7 of `core_course_get_contents`.
 
 | Module | Name |
 |---|---|
@@ -43,21 +224,19 @@ The LMS course (ID 6) has 7 modules in sections 1–7 of `core_course_get_conten
 | 6 | Communication and Growth |
 | 7 | Leadership and People Engagement |
 
-### Flat API → Hierarchy: How to parse `core_course_get_contents`
+### Flat API → Hierarchy
 
-The API returns a **flat array** of section objects. Two types exist, distinguished by the `component` field:
+`core_course_get_contents` returns a flat array. Two section types exist:
 
 | `component` value | Type |
 |---|---|
-| `null` | Top-level section — Module 1–7, Course Introduction, Course Summary, Mentorship Track |
-| `"mod_subsection"` | Lesson section — the actual content for one lesson (Overview, Video, Slides, Further Resources, Quiz). Child of a top-level section. |
+| `null` | Top-level section (Module 1–7, Course Introduction, etc.) |
+| `"mod_subsection"` | Lesson section — actual content for one lesson |
 
-**Parent → child linking:** Each top-level module section contains `modname: "subsection"` modules in its `modules[]`. These are **navigation pointers only** (`completion: 0` — not tracked). They link to the real lesson section via:
-
+**Parent → child linking:** Top-level module sections contain `modname: "subsection"` modules (navigation pointers only, `completion: 0`). They link to lesson sections via:
 - `subsection_module.instance` ↔ `lesson_section.itemid`
-- `subsection_module.customdata` (JSON string) `.sectionid` ↔ `lesson_section.id`
 
-**Tracked activities** live inside the lesson sections (`component: "mod_subsection"`), not in the top-level module:
+**Tracked activities** inside each lesson section:
 
 | Activity | `modname` | `completion` |
 |---|---|---|
@@ -67,295 +246,133 @@ The API returns a **flat array** of section objects. Two types exist, distinguis
 | Further Resources | `folder` | `2` (auto on view) |
 | Quiz | `quiz` | `2` (auto on submit) |
 
-A learner is considered to have **completed a module** when they have finished all tracked activities (`completion > 0`) across every lesson section linked to that module.
-
-**`getCachedCourseModules()` follows this algorithm:**
-1. Filter visible sections into `topLevel` (`component !== "mod_subsection"`, `section > 0`) and `lessonSections` (`component === "mod_subsection"`)
-2. Build `instance → parentIdx` map from each top-level section's `subsection` modules
-3. For each lesson section, look up its parent via `itemid`, collect its tracked activity IDs (`completion > 0`)
-4. Return `{ moduleId, moduleName, activityIds[] }` per top-level module
-
-**Mentorship Track** (`section: 9`) has `modules: []` — it is empty and produces no tracked activities. All lessons belong to Module 1–7 via the `itemid`/`instance` link.
+Only activities with `completion > 0` are included in `activityIds` for completion tracking.
 
 ---
 
-## Total Enrolled Learners
+## API Routes
 
-Total enrolled is fetched dynamically via `core_enrol_get_enrolled_users` with pagination (1 000 per page), filtering to `roles[].shortname === "student"`. This is the authoritative count — it is **not** hardcoded.
+### `/api/sync`
+- **Auth:** `Authorization: Bearer <SYNC_SECRET>` header
+- **Methods:** GET, POST
+- **maxDuration:** 900s
+- Runs the full sync via `integration/supabase/sync.ts`
+
+### `/api/fellows`
+Returns `{ fellows: FellowSummary[] }` — all students with computed completion, risk, and engagement.
+
+### `/api/fellows/[id]`
+Returns full profile for one student. Reads directly from Supabase (`students` + `completions` tables). Fast path — no Moodle calls.
+
+### `/api/fellows/[id]/quiz`
+Calls Moodle live (`mod_quiz_get_user_best_grade` per quiz). Cached for 1 hour per user via `unstable_cache`. Returns quiz stats and computed engagement score.
+
+**Query param:** `?completionPct=<number>` — passed from the fast-path route so engagement score can incorporate completion without re-fetching.
+
+### `/api/course/contents`
+Reads from `course_structure` Supabase table (stored JSONB). Re-applies the parsing algorithm to produce the nested section tree. Returns 503 if not yet synced.
+
+### `/api/dashboard/overview`
+### `/api/dashboard/engagement`
+### `/api/dashboard/progress` (via `/api/dashboard/engagement/completion`)
+### `/api/dashboard/performance`
+### `/api/dashboard/risk`
+All read from Supabase via `buildAllFellowSummaries()` in `sharedData.ts`.
 
 ---
 
-## Moodle REST API Calls Reference
+## Learner Metrics
 
-| Endpoint | Used For | Params |
-|---|---|---|
-| `core_enrol_get_enrolled_users` | Fetch all enrolled users (paginated) | `courseid`, `options[limitfrom]`, `options[limitnumber]` |
-| `core_course_get_contents` | Fetch course structure (sections → activities) | `courseid` |
-| `core_completion_get_activities_completion_status` | Per-user activity completion states | `courseid`, `userid` |
-| `mod_assign_get_assignments` | List all assignments in the course | `courseids[0]` |
-| `mod_assign_get_submissions` | Bulk: all users' submissions per assignment | `assignmentids[i]` |
-| `gradereport_overview_get_course_grades` | Per-user overall grade in the course | `userid` |
+### Completion %
 
----
-
-## API Route Architecture
-
-All data routes live under `/app/api/`. Next.js route handlers call Moodle server-side. Client pages call these routes — never Moodle directly.
-
-### Caching
-
-`moodleCall()` in `lib/moodle.ts` uses `next: { revalidate: 300 }` on each fetch. This caches every unique Moodle URL response in Next.js's data cache for **5 minutes**. Cold start (first request after cache expires) may take 15–25 s for large batches. Subsequent requests within 5 min are instant.
-
-`export const maxDuration = 60` is set on aggregate routes that batch 5 000+ user calls.
-
-### Concurrency Batching (`batchProcess`)
-
-```typescript
-async function batchProcess<In, Out>(
-  items: In[],
-  fn: (item: In) => Promise<Out>,
-  concurrency = 50
-): Promise<Out[]>
+```
+completionPct = round((completedActivities / totalTrackedActivities) × 100)
 ```
 
-Runs `fn` over all items in chunks of `concurrency`, using `Promise.all` per chunk. Order is preserved. Used for per-user completion and grade calls.
+`completedActivities` = intersection of the learner's `completed_cmids` with all `activityIds` across all course modules.
 
----
+### Risk Level
 
-## Route Implementations
+| Level | Condition |
+|---|---|
+| `active` | `completionPct >= 80` (substantially done), OR last access ≤ 7 days AND completion ≥ 25% |
+| `at_risk` | last access 7–14 days ago OR completion < 25% (and completion < 80%) |
+| `inactive` | no `lastcourseaccess`, or last access > 14 days ago (and completion < 80%) |
 
-### `/api/dashboard/overview` — Phase 2 complete
+Learners who have completed ≥ 80% of the course are always `active` — they've finished, not dropped out.
 
-Returns `OverviewData`:
+### Engagement Score
 
-```typescript
-{
-  stats: {
-    totalFellows: number;      // all enrolled students
-    activeFellows: number;     // last course access < 7 days ago
-    completionRate: number;    // % who finished ≥50% of modules
-    avgQuizScore: number;      // average grade % (gradereport_overview)
-    assignmentCompletionRate: number; // submitted / (total × assignments)
-    atRiskCount: number;
-  };
-  weeklyActive: { week: string; active: number }[]; // 8 ISO weeks
-  moduleCompletion: ModuleProgress[];
-  riskDistribution: { active: number; atRisk: number; inactive: number };
-}
+**In list views** (overview, risk table, leaderboard — no per-user quiz data):
+```
+engagementScore = completionPct
 ```
 
-**Risk classification:**
-- `inactive`: no `lastcourseaccess`, OR `daysSince > 14`
-- `at_risk`: `daysSince > 7` OR `completionPct < 25`
-- `active`: otherwise
-
-**Course completion threshold:** ≥ 50% of modules finished (`Math.ceil(moduleCount / 2)`).
-
----
-
-### `/api/dashboard/mentorship` — Phase 2 partial (forums live; NATVIEW pending)
-
-Returns `MentorshipStats`:
-
-```typescript
-{
-  forumPosts: number;          // live — total posts + replies across all course forums
-  forumByModule: { moduleId; moduleName; posts; replies }[];  // live — from mod_forum_get_forum_discussions
-  leaderboard: FellowSummary[]; // live — top 20 active learners by engagementScore
-  webinarAttendance: null;     // NATVIEW — not yet available
-  mentorSessions: null;        // NATVIEW — not yet available
-  podParticipation: null;      // NATVIEW — not yet available
-}
+**On individual learner profile** (after quiz data loads):
+```
+engagementScore = round(completionPct × 0.5 + avgQuizScore × 0.5)
 ```
 
-Forum data source: `mod_forum_get_forums_by_courses` → per-forum `mod_forum_get_forum_discussions` (paginated, capped at 2 000 discussions per forum). `userDiscussionCount` map tracks discussions started per user — used for `forumPosts` on FellowSummary in the leaderboard. The page shows an informational Alert distinguishing live data from pending NATVIEW fields.
+### Active User Metrics (DAU/WAU/MAU)
+
+Computed from `lastcourseaccess` Unix timestamps stored in the `students` table:
+- **DAU** — last course access < 24 hours ago
+- **WAU** — last course access < 7 days ago
+- **MAU** — last course access < 30 days ago
 
 ---
 
-### `/api/dashboard/risk` — Phase 2 complete
+## Moodle API Client
 
-Returns `RiskStats`:
+`lib/moodle.ts` — wraps all Moodle REST calls.
+
+- **`cache: "no-store"`** — prevents Next.js from trying to cache large Moodle responses (which caused "Failed to set fetch cache" errors with 5MB+ responses)
+- **Retry logic** — retries HTTP 5xx (non-JSON responses) up to 3 times with 3s/6s/9s backoff
+- **`_attempt = 3` trick** — passing `3` as the third argument starts at max retry count, effectively disabling retries for per-user completion calls in the sync service
+
+---
+
+## Search Implementation
+
+Search across learner names, emails, and states uses **word-splitting** to support multi-word queries (e.g. "Ambu Barnabas"):
 
 ```typescript
-{
-  inactiveOver7Days: number;        // daysSinceActive > 7
-  inactiveOver14Days: number;       // daysSinceActive > 14
-  lowQuizScore: number;             // users with avgQuizScore > 0 AND < 50%
-  noMentorshipEngagement: number;   // users with 0 forum discussions started
-  distribution: { active; atRisk; inactive };
-  fellows: FellowSummary[];         // all enrolled learners (full table)
-}
+const words = search.trim().toLowerCase().split(/\s+/);
+const haystack = [f.fullname, f.email, f.state ?? ""].join(" ").toLowerCase();
+const matches = !words[0] || words.every(w => haystack.includes(w));
 ```
 
-Shares all data with mentorship route via `sharedData` cache. The full `fellows` array powers the filterable/searchable RiskTable.
+Applied in: `app/dashboard/learners/page.tsx` and `components/tables/RiskTable.tsx`.
 
 ---
 
-## Shared Server Data Cache (`lib/server/sharedData.ts`)
+## TypeScript Configuration
 
-`unstable_cache` (Next.js, 5-minute TTL) wraps the five most expensive shared operations. Multiple route handlers that open within the same 5-minute window share the same processed result — no recomputation.
+`integration/supabase/functions/` is excluded from `tsconfig.json` because it contains Deno code (`Deno.env.get()`, `https://` imports) that TypeScript's Node.js config doesn't understand:
 
-| Cached getter | Data | Cost (cold) |
-|---|---|---|
-| `getCachedStudents()` | All enrolled students | ~5 paginated Moodle calls |
-| `getCachedCourseModules()` | Module 1–7 → tracked `activityIds[]` (from lesson sections via `itemid`/`instance` link) | 1 Moodle call |
-| `getCachedRawCompletions()` | `userId → completedCmids[]` | ~5 000 batched calls @ 50 concurrent |
-| `getCachedGradeItems()` | `userId → GradeItem[]` | ~5 000 batched calls @ 100 concurrent |
-| `getCachedForumData()` | Posts/replies per module + per-user discussion count | N forums × paginated discussion calls |
-
-**Hydration helper:** `makeCompletedByUser(raw)` reconstructs `Map<number, Set<number>>` from the serialised `Record<string, number[]>` stored in the cache (Maps/Sets are not JSON-serialisable).
-
-Routes using sharedData: **mentorship**, **risk**. Existing routes (overview, progress, engagement, performance) use `next: { revalidate: 300 }` on individual moodleCall fetches — functionally equivalent caching at the HTTP level; they can be migrated to sharedData in a future pass.
-
----
-
-### `/api/dashboard/engagement` — Phase 2 complete
-
-Returns `EngagementStats`:
-
-```typescript
-{
-  dau: number;          // last course access < 24 hours
-  wau: number;          // last course access < 7 days
-  mau: number;          // last course access < 30 days
-  contentViews: number; // total completed activity instances across all users
-  weeklyActivity: { week: string; logins: number; interactions: number }[]; // 12 ISO weeks
-  heatmap: { day: number; hour: number; count: number }[];  // 7×24 grid (day 0=Mon)
-  moduleViews: { moduleId: number; moduleName: string; views: number }[];
-}
+```json
+"exclude": ["node_modules", "integration/supabase/functions"]
 ```
-
-**Data sources (no log API required):**
-- `dau`/`wau`/`mau`: computed from `lastcourseaccess` Unix timestamps on enrolled users
-- `weeklyActivity.logins`: users whose general Moodle `lastaccess` falls in that ISO week
-- `weeklyActivity.interactions`: users whose `lastcourseaccess` falls in that ISO week (course-specific; always ≤ logins)
-- `heatmap`: extracts hour-of-day and day-of-week from each user's `lastcourseaccess` timestamp
-- `contentViews`: sum of all completed activity instances across all users (from completion statuses)
-- `moduleViews`: count of users with ≥1 completed activity in each module section
-
----
-
-### `/api/dashboard/performance` — Phase 2 complete
-
-Returns `PerformanceStats`:
-
-```typescript
-{
-  avgQuizScore: number;      // mean quiz % across all users with a quiz grade
-  submissionRate: number;    // submitted / (total × assignments)
-  passRate: number;          // % of users with avg quiz score ≥ 50%
-  failRate: number;          // 100 - passRate
-  quizByModule: QuizStat[];
-  assignmentByModule: { moduleId; moduleName; submitted; notSubmitted }[];
-  topLearners: FellowSummary[]; // top 20 active learners by engagementScore
-}
-```
-
-**Key Moodle call:** `gradereport_user_get_grade_items` (Moodle 3.2+) — fetches all grade items (quizzes, assignments) per user in one call. Batched at 100 concurrent. Each item includes `cmid`, `itemmodule`, `graderaw`, `grademax`.
-
-- Quiz cmid → module section via `core_course_get_contents` cmid map
-- `assignmentByModule`: uses `mod_assign_get_submissions` (bulk per-assignment) mapped to sections via assignment cmid
-- `topLearners`: scored students filtered to `riskLevel === "active"`, sorted by `engagementScore` desc. `forumPosts` is 0 until mentorship phase wires in forum data.
-- `engagementScore` = `min(100, forumPosts×3 + avgQuizScore×0.3 + completionPct×0.2)`
-
----
-
-### `/api/dashboard/progress` — Phase 2 complete
-
-Returns `ProgressStats`:
-
-```typescript
-{
-  startedPct: number;        // % with ≥1 completed activity
-  completedPct: number;      // % who finished ≥50% modules
-  avgCompletionRate: number; // avg per-learner completion % across all activities
-  totalEnrolled: number;     // raw headcount
-  moduleProgress: ModuleProgress[];
-  funnel: { stage: string; count: number; pct: number }[];
-  dropOff: { moduleId: number; moduleName: string; activePct: number }[];
-}
-```
-
-**Funnel stages:**
-1. Enrolled — total students
-2. Started — at least 1 completed tracked activity
-3. Midway (Module 4+) — completed Module 4 (the halfway module)
-4. Completed — finished ≥50% of modules
-
-**Drop-off chart:** each module's `activePct` equals that module's `completionPct`, showing where learners leave the course.
-
----
-
-### `/api/fellows` — Phase 2 complete
-
-Returns `{ fellows: FellowSummary[] }`. Paginates `core_enrol_get_enrolled_users`, filters to students only.
-
-### `/api/course/contents` — Phase 2 complete
-
-Returns `{ sections: CourseSection[] }`. Each section includes `subSections[]` populated by linking lesson sections (`component: "mod_subsection"`) to their parent module via `itemid` ↔ subsection module `instance`. See **Course Structure → Flat API → Hierarchy** above for the full parsing algorithm.
-
----
-
-## Phase 2 Integration Status
-
-| Page | Route | Status |
-|---|---|---|
-| Overview `/dashboard` | `/api/dashboard/overview` | ✅ Live |
-| Course Progress `/dashboard/modules` | `/api/dashboard/progress` | ✅ Live |
-| Engagement `/dashboard/engagement` | `/api/dashboard/engagement` | ✅ Live |
-| Assessments `/dashboard/assessments` | `/api/dashboard/performance` | ✅ Live |
-| Learners `/dashboard/learners` | `/api/fellows` | ✅ Live |
-| Learner Detail `/dashboard/learners/[id]` | `/api/fellows/[id]` | ✅ Live |
-| Course Structure `/dashboard/course-structure` | `/api/course/contents` | ✅ Live |
-| Mentorship `/dashboard/mentorship` | `/api/dashboard/mentorship` | ✅ Live (forums); NATVIEW pending |
-| Risk `/dashboard/risk` | `/api/dashboard/risk` | ✅ Live |
-| Learner Detail `/dashboard/learners/[id]` | `/api/fellows/[id]` (pending) | ⬜ Mock |
 
 ---
 
 ## Design System
 
-### Color Rules (enforced across all pages)
+### Color Rules
 
 | Color | Hex | Usage |
 |---|---|---|
 | Default dark | `#111827` | All KPI values unless semantic meaning applies |
-| Blue | `#1D4ED8` | **One** highlight KPI per page (primary metric) |
+| Blue | `#1D4ED8` | One highlight KPI per page (primary metric) |
+| Green | `#16A34A` | Success / passing / active |
 | Red | `#DC2626` | Risk / Fail Rate KPIs only |
-| Amber | `#D97706` | Inactive >7 days on Risk page only |
+| Amber | `#D97706` | At-risk / Inactive >7 days |
 
-### Ant Design v6 Deprecation Fixes
+### Ant Design v6
 
 - `valueStyle` on `<Statistic>` → `styles={{ value: {...} }}`
 - `trailColor` on `<Progress>` → `styles={{ rail: { background: "..." } }}`
-- Card body flex → `styles={{ body: { flex: 1 } }}` + `style={{ flex: 1, display: "flex", flexDirection: "column" }}` on Card
-
----
-
-## Component Structure
-
-```
-components/
-  cards/
-    KPICard.tsx          — stat card with optional color + suffix
-  charts/
-    FunnelChart.tsx      — enrollment funnel
-  fellow/
-    FellowHeader.tsx     — learner profile header (avatar fallback: #f1f5f9)
-  layout/
-    DashboardLayout.tsx  — sidebar + header shell
-    Sidebar.tsx          — nav (8 items; "Learners" not "Fellows")
-    DashboardHeader.tsx  — top bar with collapse toggle
-```
-
-### Layout Fix (important)
-
-Content must not push the sidebar. The fix:
-```tsx
-<Layout className="overflow-hidden">
-  <DashboardHeader />
-  <Content className="p-6 bg-[#F8FAFC] overflow-y-auto h-[calc(100vh-64px)]">
-```
+- Card body flex → `styles={{ body: { flex: 1 } }}`
 
 ---
 
@@ -363,18 +380,35 @@ Content must not push the sidebar. The fix:
 
 | File | Purpose |
 |---|---|
-| `lib/moodle.ts` | Moodle REST wrapper — all server-side Moodle calls go through here |
-| `lib/constants.ts` | `COURSE_ID`, `STALE_TIME`, `CHART_COLORS`, `MODULES` |
+| `lib/server/sharedData.ts` | Supabase data layer — all shared queries |
+| `integration/supabase/server.ts` | Service role Supabase client |
+| `integration/supabase/sync.ts` | Sync service (Next.js compatible) |
+| `integration/supabase/functions/sync/index.ts` | Deno Edge Function (deployed to Supabase) |
+| `integration/supabase/migrations/001_initial_schema.sql` | Database schema with RLS |
+| `lib/moodle.ts` | Moodle REST API client |
+| `lib/constants.ts` | `COURSE_ID`, `TABLE_PAGE_SIZE`, `CHART_COLORS` |
 | `lib/types.ts` | Shared TypeScript interfaces |
-| `lib/services/dashboardService.ts` | Client-side service layer — hooks call these methods |
-| `hooks/useOverview.ts` | TanStack Query hook for overview data |
-| `hooks/useProgress.ts` | TanStack Query hook for course progress data |
+| `app/api/sync/route.ts` | Manual sync trigger |
 
 ---
 
-## Pending Decisions
+## Pages
 
-- **Course Structure + Course Progress merge**: Agreed to combine into a single "Course" tab at `/dashboard/course` with inner tabs (Structure | Progress). Engagement stays separate. Not yet implemented.
-- **Multi-course support**: Currently single-course (`COURSE_ID` env var). Multi-course needs a course selector UI + API parameterisation.
-- **Engagement API**: `report_log_get_log_records` may require elevated Moodle permissions. Verify before attempting Phase 2 for engagement page.
-- **Mentorship**: Webinar and pod session data lives outside Moodle (NATVIEW integration TBD). Forum data is available via `mod_forum_get_forums_by_courses`.
+| Route | Description |
+|---|---|
+| `/dashboard` | Overview: headcount KPIs, weekly active trend, risk donut, module completion |
+| `/dashboard/engagement` | Activity trends, heatmap, top learners, demographic breakdowns, risk table |
+| `/dashboard/modules` | Module completion rates, drop-off chart, completion funnels |
+| `/dashboard/learners` | Full learner directory with search (multi-word), filters, state distribution |
+| `/dashboard/learners/[id]` | Individual learner: module progress bars + quiz performance chart |
+| `/dashboard/course-structure` | Course content map — modules, lessons, tracked vs untracked activities |
+
+---
+
+## Known Limitations
+
+| Issue | Status |
+|---|---|
+| Mentorship data (webinar, pod sessions) | Not available — NATVIEW integration pending |
+| Per-user quiz scores (individual profile) | Still calls Moodle live — no bulk API exists |
+| Completions for inactive students | Skipped in sync — only students with `lastcourseaccess > 0` are queried |

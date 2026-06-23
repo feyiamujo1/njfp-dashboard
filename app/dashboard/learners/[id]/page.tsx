@@ -55,15 +55,16 @@ export default function LearnerDetailPage({
     refetch,
   } = useFellowDetail(fellowId, cachedBasic?.lastcourseaccess);
 
+  const showFullSkeleton = !cachedBasic && detailLoading;
+  const detailReady = !!fellow;
+
   // Quiz stats load separately — first hit takes ~60s (Moodle serial processing),
   // subsequent hits are instant from the 1-hour server cache.
+  // Gated on detailReady so completionPct is the real value, not 0 from initial render.
   const {
     data: quizDetail,
     isLoading: quizLoading,
-  } = useFellowQuizStats(fellowId, fellow?.completionPct ?? 0);
-
-  const showFullSkeleton = !cachedBasic && detailLoading;
-  const detailReady = !!fellow;
+  } = useFellowQuizStats(fellowId, fellow?.completionPct ?? 0, detailReady);
   const quizReady = !!quizDetail;
 
   // Merge quiz data on top of fast-path data when available

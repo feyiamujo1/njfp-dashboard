@@ -30,9 +30,9 @@ export default function RiskTable({ data, loading }: Props) {
   const filtered = useMemo(() => {
     return data.filter((f) => {
       const matchesTab = activeTab === "all" || f.riskLevel === activeTab;
-      const matchesSearch = f.fullname
-        .toLowerCase()
-        .includes(search.toLowerCase());
+      const words = search.trim().toLowerCase().split(/\s+/);
+      const haystack = [f.fullname, f.email, f.state ?? ""].join(" ").toLowerCase();
+      const matchesSearch = !words[0] || words.every(w => haystack.includes(w));
       return matchesTab && matchesSearch;
     });
   }, [data, activeTab, search]);

@@ -35,6 +35,7 @@ import RiskTable from "@/components/tables/RiskTable";
 import LeaderboardTable from "@/components/tables/LeaderboardTable";
 import { useEngagement } from "@/hooks/useEngagement";
 import { useLearnerActivity } from "@/hooks/useLearnerActivity";
+import { useProgressCompletion } from "@/hooks/useProgressCompletion";
 import { CHART_COLORS } from "@/lib/constants";
 import type { ActivityDemBreakdown } from "@/lib/types";
 
@@ -124,6 +125,7 @@ const ACT_COLUMNS = [
 export default function LearnerActivityPage() {
   const { data: fast, isLoading, isError, error, refetch } = useEngagement();
   const { data: slow, isLoading: slowLoading } = useLearnerActivity();
+  const { data: progressSlow, isLoading: progressSlowLoading } = useProgressCompletion();
 
   const [topStates, setTopStates] = useState(15);
 
@@ -406,7 +408,25 @@ export default function LearnerActivityPage() {
             title="No Activities Done"
             value={risk?.notStartedCount.toLocaleString() ?? "—"}
             loading={slowLoading}
-            tooltip="Fellows who have not completed any tracked course activity yet (0% completion). They may have logged in but haven't engaged with course content."
+            tooltip={`Fellows with 0% activity completion — they have not ticked off any tracked course activity. This count is larger than 'Inactive Learners' because it is based on completion, not time: learners who opened the course recently but have not done anything are at-risk (not inactive), yet still appear here. Of this group, ${risk?.neverAccessedCourse?.toLocaleString() ?? "?"} have never opened the course at all.`}
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={8}>
+          <KPICard
+            title="Active, Not Started"
+            value={risk?.activeNotStarted?.toLocaleString() ?? "—"}
+            loading={slowLoading}
+            valueColor="#7C3AED"
+            tooltip="Fellows who accessed the course within the last 7 days but have not completed any activity (0% completion). They are showing up but not engaging — a prime target for an immediate nudge."
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={8}>
+          <KPICard
+            title="Logged In, Not in Course"
+            value={risk?.loginNotEngaged?.toLocaleString() ?? "—"}
+            loading={slowLoading}
+            valueColor="#0891B2"
+            tooltip="Fellows who logged into Moodle in the last 7 days but have not visited this course in over 14 days. They are reachable on the platform but have drifted away from this programme."
           />
         </Col>
       </Row>
@@ -644,6 +664,69 @@ export default function LearnerActivityPage() {
               ]}
             />
           </>
+        )}
+      </Card>
+
+      <Card
+        title={
+          <CardTitle
+            title="Quiz Participation by Module"
+            hint="For each module with a quiz, the number and % of enrolled fellows who have completed at least one quiz activity. Measures whether learners are engaging with assessments, independent of their quiz score."
+          />
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={progressSlowLoading || !progressSlow?.quizParticipationByModule?.length}
+            onClick={() =>
+              downloadCsv(
+                "quiz-participation.csv",
+                ["Module ID", "Module Name", "Participants", "Participation %"],
+                (progressSlow?.quizParticipationByModule ?? []).map(q => [
+                  q.moduleId, q.moduleName, q.participantCount, q.participationPct,
+                ])
+              )
+            }>
+            Export
+          </Button>
+        }>
+        {progressSlowLoading ? (
+          <Skeleton active paragraph={{ rows: 5 }} />
+        ) : !progressSlow?.quizParticipationByModule?.length ? (
+          <p className="text-sm text-slate-400 text-center py-6">No quiz activities detected in course structure.</p>
+        ) : (
+          <ResponsiveContainer
+            width="100%"
+            height={Math.max(220, (progressSlow.quizParticipationByModule.length) * 52)}
+          >
+            <BarChart
+              data={progressSlow.quizParticipationByModule}
+              layout="vertical"
+              margin={{ left: 8, right: 56, top: 8, bottom: 8 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}%`} />
+              <YAxis
+                type="category"
+                dataKey="moduleName"
+                width={140}
+                tick={{ fontSize: 11 }}
+                tickFormatter={(v: string) => v.split(" ").slice(0, 2).join(" ")}
+              />
+              <ChartTooltip
+                formatter={(v: unknown, _: unknown, props: { payload?: { participantCount?: number } }) => [
+                  `${v}% (${(props.payload?.participantCount ?? 0).toLocaleString()} fellows)`,
+                  "Quiz Participation",
+                ]}
+                labelFormatter={(_: unknown, payload: ReadonlyArray<{ payload?: { moduleName?: string } }>) =>
+                  payload?.[0]?.payload?.moduleName ?? ""
+                }
+              />
+              <Bar dataKey="participationPct" name="Quiz Participation %" radius={[0, 4, 4, 0]} barSize={22}
+                fill={CHART_COLORS.primary} />
+            </BarChart>
+          </ResponsiveContainer>
         )}
       </Card>
 

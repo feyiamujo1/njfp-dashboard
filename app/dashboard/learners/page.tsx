@@ -278,13 +278,9 @@ export default function FellowsPage() {
       if (regionFilter !== "all" && normalizeRegion(f.region) !== regionFilter)
         return false;
       if (search.trim()) {
-        const q = search.toLowerCase();
-        if (
-          !f.fullname.toLowerCase().includes(q) &&
-          !f.email.toLowerCase().includes(q) &&
-          !f.state?.toLowerCase().includes(q)
-        )
-          return false;
+        const words = search.trim().toLowerCase().split(/\s+/);
+        const haystack = [f.fullname, f.email, f.state ?? ""].join(" ").toLowerCase();
+        if (!words.every(w => haystack.includes(w))) return false;
       }
       return true;
     });

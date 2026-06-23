@@ -8,6 +8,12 @@
  */
 
 import { supabase } from "@/integration/supabase/server";
+import { COURSE_ID } from "@/lib/constants";
+
+// Supabase PostgREST default max_rows is 1000. This constant overrides it on
+// every query and must match (or be under) the Max Rows setting in
+// Supabase Dashboard → Settings → API. Set that to 50000 as well.
+const MAX_ROWS = 50_000;
 import type { FellowSummary, RiskLevel } from "@/lib/types";
 
 // ─── Exported types ───────────────────────────────────────────────────────────
@@ -47,7 +53,8 @@ export interface QuizInstance {
 export async function getCachedStudents(): Promise<CachedStudent[]> {
   const { data, error } = await supabase
     .from("students")
-    .select("id, fullname, email, lastaccess, lastcourseaccess, profileimageurl, gender, state, lga, region");
+    .select("id, fullname, email, lastaccess, lastcourseaccess, profileimageurl, gender, state, lga, region")
+    .limit(MAX_ROWS);
 
   if (error) throw new Error(`getCachedStudents: ${error.message}`);
 
@@ -83,7 +90,8 @@ export async function getCachedCourseModules(): Promise<CachedCourseModule[]> {
 export async function getCachedRawCompletions(): Promise<Record<string, number[]>> {
   const { data, error } = await supabase
     .from("completions")
-    .select("user_id, completed_cmids");
+    .select("user_id, completed_cmids")
+    .limit(MAX_ROWS);
 
   if (error) throw new Error(`getCachedRawCompletions: ${error.message}`);
 
@@ -127,6 +135,66 @@ export function makeCompletedByUser(
   return new Map(Object.entries(raw).map(([k, v]) => [Number(k), new Set(v)]));
 }
 
+// ─── Course structure: per-activity details per module ────────────────────────
+
+interface RawMod { id: number; name: string; modname: string; completion: number; visible: number; instance: number }
+interface RawSection { visible: 1 | 0; section: number; component?: string | null; itemid?: number | null; modules: RawMod[] }
+
+export interface ActivityDetail {
+  cmid: number;
+  name: string;
+  modname: string;
+  completion: number;
+}
+
+export interface ModuleActivityDetails {
+  moduleId: number;
+  moduleName: string;
+  activities: ActivityDetail[];
+}
+
+export async function getCachedModuleActivityDetails(): Promise<ModuleActivityDetails[]> {
+  const { data, error } = await supabase
+    .from("course_structure")
+    .select("sections")
+    .eq("course_id", COURSE_ID)
+    .single();
+
+  if (error || !data) return [];
+
+  const sections = data.sections as unknown as (RawSection & { name: string })[];
+  const visible = sections.filter(s => s.visible === 1);
+  const topLevel = visible.filter(s => s.component !== "mod_subsection" && s.section > 0);
+  const lessonSections = visible.filter(s => s.component === "mod_subsection");
+
+  const instanceToParent = new Map<number, number>();
+  topLevel.forEach((parent, idx) =>
+    parent.modules
+      .filter(m => m.modname === "subsection" && m.visible !== 0)
+      .forEach(m => instanceToParent.set(m.instance, idx))
+  );
+
+  const activitiesByParent: ActivityDetail[][] = topLevel.map(() => []);
+  for (const lesson of lessonSections) {
+    if (!lesson.itemid) continue;
+    const idx = instanceToParent.get(lesson.itemid);
+    if (idx === undefined) continue;
+    for (const m of lesson.modules) {
+      if (m.visible !== 0 && m.completion > 0) {
+        activitiesByParent[idx].push({ cmid: m.id, name: m.name, modname: m.modname, completion: m.completion });
+      }
+    }
+  }
+
+  return topLevel
+    .map((s, idx) => ({
+      moduleId: s.section,
+      moduleName: (s as unknown as { name: string }).name,
+      activities: activitiesByParent[idx],
+    }))
+    .filter(m => m.activities.length > 0);
+}
+
 // ─── Shared utilities ─────────────────────────────────────────────────────────
 
 export async function batchProcess<In, Out>(
@@ -163,18 +231,22 @@ export async function buildAllFellowSummaries(): Promise<FellowSummary[]> {
     const completionPct =
       totalActivities > 0 ? Math.round((doneCount / totalActivities) * 100) : 0;
 
-    const engagementScore = Math.min(100, Math.round(completionPct * 0.7));
+    const engagementScore = completionPct;
 
     const daysSinceActive = s.lastcourseaccess
       ? Math.floor((Date.now() / 1000 - s.lastcourseaccess) / 86400)
       : 999;
 
+    // Learners who have substantially completed the course (≥80%) are treated as
+    // active regardless of last-access time — they've finished, not dropped out.
     const riskLevel: RiskLevel =
-      !s.lastcourseaccess || daysSinceActive > 14
-        ? "inactive"
-        : daysSinceActive > 7 || completionPct < 25
-          ? "at_risk"
-          : "active";
+      completionPct >= 80
+        ? "active"
+        : !s.lastcourseaccess || daysSinceActive > 14
+          ? "inactive"
+          : daysSinceActive > 7 || completionPct < 25
+            ? "at_risk"
+            : "active";
 
     return {
       ...s,
