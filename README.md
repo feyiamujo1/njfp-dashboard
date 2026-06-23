@@ -107,33 +107,6 @@ integration/
 
 ---
 
-## Environment Variables
-
-Create `.env.local` with the following (never commit this file):
-
-```
-NEXT_MOODLE_BASE_URL=https://your-moodle-domain.com
-NEXT_MOODLE_TOKEN=<moodle-webservice-token>
-NEXT_COURSE_ID=<moodle-course-id>
-
-NEXT_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_SUPABASE_SERVICE_ROLE_KEY=<supabase-service-role-key>
-
-SYNC_SECRET=<random-hex-string>
-```
-
-For the Supabase Edge Function, set these secrets in the Supabase Dashboard under **Edge Functions → Manage secrets**:
-
-```
-MOODLE_BASE_URL=
-MOODLE_TOKEN=
-SYNC_SECRET=
-```
-
-`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically inside Edge Functions.
-
----
-
 ## Database Schema
 
 Seven tables in Supabase (see `integration/supabase/migrations/001_initial_schema.sql`):

@@ -24,23 +24,6 @@ Data is served from **Supabase** (PostgreSQL), kept fresh by a background sync j
 
 ---
 
-## Environment Variables (`.env.local`)
-
-```
-NEXT_MOODLE_BASE_URL=https://your-moodle-domain.com
-NEXT_MOODLE_TOKEN=<webservice-token>
-NEXT_COURSE_ID=<course-id>
-
-NEXT_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-
-SYNC_SECRET=<random-hex-string>
-```
-
-Never commit `.env.local`. Never expose these values in code, logs, or documentation.
-
----
-
 ## Architecture
 
 ```
