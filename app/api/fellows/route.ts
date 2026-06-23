@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getCachedStudents } from "@/lib/server/sharedData";
+import { buildAllFellowSummaries } from "@/lib/server/sharedData";
 
 export const maxDuration = 120;
 
 export async function GET() {
   try {
-    const students = await getCachedStudents();
-    return NextResponse.json({ fellows: students });
+    const fellows = await buildAllFellowSummaries();
+    return NextResponse.json({ fellows });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message ?? "Internal error" },

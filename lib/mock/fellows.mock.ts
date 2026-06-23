@@ -26,6 +26,8 @@ function fellow(
     lastcourseaccess: NOW - daysAgo * DAY,
     profileimageurl: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff`,
     completionPct,
+    activitiesDone: Math.round(completionPct * 0.48),
+    totalActivities: 48,
     avgQuizScore,
     engagementScore: Math.min(
       100,

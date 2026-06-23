@@ -42,9 +42,9 @@ export async function GET() {
     });
 
     const topLearners = learnerStats
-      .filter(({ completionPct }) => completionPct > 0)
-      .sort((a, b) => b.completionPct - a.completionPct)
-      .map(({ s, doneCount, completionPct }) => ({
+      .filter(({ doneCount }) => totalActivities > 0 && doneCount === totalActivities)
+      .sort((a, b) => (b.s.lastcourseaccess ?? 0) - (a.s.lastcourseaccess ?? 0))
+      .map(({ s, doneCount }) => ({
         id: s.id,
         fullname: s.fullname,
         email: s.email,
@@ -52,7 +52,7 @@ export async function GET() {
         lastcourseaccess: s.lastcourseaccess,
         activitiesDone: doneCount,
         totalActivities,
-        completionPct: Math.round(completionPct),
+        completionPct: 100,
       }));
 
     const avgCompletionPct = total > 0 ? Math.round(totalCompletionPctSum / total) : 0;

@@ -1,13 +1,13 @@
 "use client";
 
-import { Table, Tag, Button, Input } from "antd";
+import { Table, Tag, Button, Input, Progress } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
 import { SearchOutlined } from "@ant-design/icons";
 import moment from "moment";
 import type { FellowSummary, RiskLevel } from "@/lib/types";
-import { TABLE_PAGE_SIZE } from "@/lib/constants";
+import { TABLE_PAGE_SIZE, CHART_COLORS } from "@/lib/constants";
 
 const RISK_TAG: Record<RiskLevel, { color: string; label: string }> = {
   active: { color: "success", label: "Active" },
@@ -60,10 +60,32 @@ export default function RiskTable({ data, loading }: Props) {
     },
     {
       title: "Completion",
-      dataIndex: "completionPct",
       key: "completion",
-      render: (v: number) => `${v}%`,
+      width: 220,
       sorter: (a, b) => b.completionPct - a.completionPct,
+      render: (_: unknown, r: FellowSummary) => (
+        <div className="flex items-center gap-2">
+          <Progress
+            percent={r.completionPct}
+            showInfo={false}
+            size="small"
+            strokeColor={
+              r.completionPct === 100
+                ? CHART_COLORS.success
+                : r.completionPct >= 50
+                ? CHART_COLORS.primary
+                : r.completionPct > 0
+                ? CHART_COLORS.warning
+                : CHART_COLORS.neutral
+            }
+            styles={{ rail: { background: "#f1f5f9" } }}
+            style={{ flex: 1 }}
+          />
+          <span className="text-xs text-slate-500 w-24 text-right shrink-0">
+            {r.activitiesDone}/{r.totalActivities} · {r.completionPct}%
+          </span>
+        </div>
+      ),
     },
     {
       title: "Risk Level",

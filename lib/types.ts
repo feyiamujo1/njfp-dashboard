@@ -15,6 +15,8 @@ export interface Fellow {
 
 export interface FellowSummary extends Fellow {
   completionPct: number;
+  activitiesDone: number;
+  totalActivities: number;
   avgQuizScore: number;
   engagementScore: number;
   riskLevel: RiskLevel;

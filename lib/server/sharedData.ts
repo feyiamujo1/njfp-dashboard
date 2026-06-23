@@ -251,6 +251,8 @@ export async function buildAllFellowSummaries(): Promise<FellowSummary[]> {
     return {
       ...s,
       completionPct,
+      activitiesDone: doneCount,
+      totalActivities,
       avgQuizScore: 0,
       engagementScore,
       riskLevel,

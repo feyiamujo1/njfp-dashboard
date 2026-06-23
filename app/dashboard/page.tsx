@@ -294,12 +294,12 @@ export default function OverviewPage() {
         )}
       </Card>
 
-      {/* Top Learners table */}
+      {/* 100% Completers table */}
       <Card
         title={
           <CardTitle
-            title="Top Learners"
-            hint="All fellows ranked by course completion percentage, showing only those who have started at least one activity. Ranked by % of all tracked activities completed."
+            title="100% Completers"
+            hint="Fellows who have completed every single tracked activity in the course — true 100% completion across all modules. Sorted by most recently active."
           />
         }
         extra={
@@ -307,9 +307,9 @@ export default function OverviewPage() {
             {!completionLoading && completion && (
               <span className="text-sm text-slate-500">
                 <span className="font-semibold text-slate-700">
-                  {completion.completedFellows.toLocaleString()}
+                  {completion.topLearners.length.toLocaleString()}
                 </span>{" "}
-                fellow{completion.completedFellows !== 1 ? "s" : ""} completed
+                fellow{completion.topLearners.length !== 1 ? "s" : ""} at 100%
               </span>
             )}
             <TrophyOutlined className="text-amber-400 text-lg" />
@@ -319,14 +319,14 @@ export default function OverviewPage() {
               disabled={completionLoading || !completion?.topLearners?.length}
               onClick={() =>
                 downloadCsv(
-                  "top-learners.csv",
-                  ["Rank", "Name", "Email", "Activities Done", "Total Activities", "Completion %", "Last Active"],
+                  "100pct-completers.csv",
+                  ["#", "Name", "Email", "Activities Done", "Total Activities", "Last Active"],
                   (completion?.topLearners ?? []).map((r, i) => [
-                    i + 1, r.fullname, r.email, r.activitiesDone, r.totalActivities, r.completionPct, formatTs(r.lastcourseaccess),
+                    i + 1, r.fullname, r.email, r.activitiesDone, r.totalActivities, formatTs(r.lastcourseaccess),
                   ])
                 )
               }>
-              Export All
+              Export
             </Button>
           </div>
         }>
@@ -337,69 +337,58 @@ export default function OverviewPage() {
             dataSource={completion?.topLearners ?? []}
             rowKey="id"
             size="small"
-            pagination={{ pageSize: 10, showSizeChanger: false }}
+            pagination={{ pageSize: 10, showSizeChanger: false, showTotal: (t) => `${t} fellows` }}
             columns={[
               {
                 title: "#",
                 key: "rank",
                 width: 48,
                 render: (_: unknown, __: TopLearner, index: number) => (
-                  <span className="text-slate-400 font-medium">
-                    {index + 1}
-                  </span>
-                )
+                  <span className="text-slate-400 font-medium">{index + 1}</span>
+                ),
               },
               {
                 title: "Fellow",
                 key: "fellow",
                 render: (_: unknown, r: TopLearner) => (
                   <div className="flex items-center gap-2">
-                    <Avatar src={r.profileimageurl} size={28}>
-                      {r.fullname[0]}
-                    </Avatar>
-                    <span className="font-medium">{r.fullname}</span>
+                    <Avatar src={r.profileimageurl} size={28}>{r.fullname[0]}</Avatar>
+                    <div>
+                      <div className="font-medium text-sm">{r.fullname}</div>
+                      <div className="text-xs text-slate-400">{r.email}</div>
+                    </div>
                   </div>
-                )
+                ),
               },
               {
-                title: "Activities Done",
+                title: "Activities",
                 key: "activities",
                 align: "center" as const,
                 render: (_: unknown, r: TopLearner) => (
-                  <span className="text-slate-600">
+                  <span className="text-slate-600 text-sm">
                     {r.activitiesDone} / {r.totalActivities}
                   </span>
-                )
+                ),
               },
               {
                 title: "Completion",
-                dataIndex: "completionPct",
-                key: "completionPct",
+                key: "completion",
                 align: "center" as const,
-                sorter: (a: TopLearner, b: TopLearner) =>
-                  a.completionPct - b.completionPct,
-                render: (v: number) => (
-                  <Tag
-                    color={v >= 60 ? "green" : v >= 30 ? "orange" : "default"}
-                    className="font-semibold">
-                    {v}%
-                  </Tag>
-                )
+                render: () => (
+                  <Tag color="green" className="font-semibold">100%</Tag>
+                ),
               },
               {
                 title: "Last Active",
                 dataIndex: "lastcourseaccess",
                 key: "lastcourseaccess",
                 align: "right" as const,
-                render: (ts: number) =>
-                  ts
-                    ? new Date(ts * 1000).toLocaleDateString("en-GB", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric"
-                      })
-                    : "Never"
-              }
+                render: (ts: number) => (
+                  <span className="text-slate-500 text-xs">{formatTs(ts)}</span>
+                ),
+                sorter: (a: TopLearner, b: TopLearner) =>
+                  (b.lastcourseaccess ?? 0) - (a.lastcourseaccess ?? 0),
+              },
             ]}
           />
         )}
