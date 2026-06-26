@@ -442,7 +442,6 @@ export default function MentorshipPage() {
       title: "State",
       dataIndex: "state",
       key: "state",
-      width: 110,
       render: (v: string | null) => (
         <span className="text-slate-600 text-sm">{v ?? "—"}</span>
       ),
@@ -450,7 +449,6 @@ export default function MentorshipPage() {
     {
       title: "Completion",
       key: "completion",
-      width: 190,
       sorter: (a, b) => b.completionPct - a.completionPct,
       render: (_, r) => (
         <div className="flex items-center gap-2">
