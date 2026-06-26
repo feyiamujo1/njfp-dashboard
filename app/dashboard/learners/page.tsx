@@ -715,7 +715,7 @@ export default function FellowsPage() {
             onClick={() =>
               downloadCsv(
                 "all-students.csv",
-                ["Name", "Email", "Gender", "State", "LGA", "Region", "Last Access", "Completion %", "Risk Level", "Engagement Score", "Days Since Active"],
+                ["Name", "Email", "Gender", "State", "LGA", "Region", "Last Access", "Completion %", "Risk Level", "Days Since Active"],
                 (data ?? []).map(f => [
                   f.fullname,
                   f.email,
@@ -726,7 +726,6 @@ export default function FellowsPage() {
                   formatTs(f.lastcourseaccess),
                   f.completionPct,
                   f.riskLevel,
-                  f.engagementScore,
                   f.daysSinceActive === 999 ? "Never active" : f.daysSinceActive,
                 ])
               )

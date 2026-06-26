@@ -544,9 +544,9 @@ export default function LearnerActivityPage() {
             onClick={() =>
               downloadCsv(
                 "risk-overview.csv",
-                ["Name", "Email", "Risk Level", "Completion %", "Engagement Score", "Last Active", "Days Since Active", "Gender", "State", "Region"],
+                ["Name", "Email", "Risk Level", "Completion %", "Last Active", "Days Since Active", "Gender", "State", "Region"],
                 (risk?.fellows ?? []).map(f => [
-                  f.fullname, f.email, f.riskLevel, f.completionPct, f.engagementScore,
+                  f.fullname, f.email, f.riskLevel, f.completionPct,
                   formatTs(f.lastcourseaccess), f.daysSinceActive === 999 ? "Never" : f.daysSinceActive,
                   f.gender ?? "Not Specified", f.state ?? "Not Specified", f.region ?? "Not Specified",
                 ])
@@ -734,7 +734,7 @@ export default function LearnerActivityPage() {
         title={
           <CardTitle
             title="Top Learners by Engagement"
-            hint="All currently active fellows ranked by engagement score (a composite of completion % and activity). Only fellows who accessed the course in the past 7 days are included."
+            hint="All currently active fellows ranked by completion percentage. Only fellows who accessed the course in the past 7 days are included."
           />
         }
         extra={
@@ -745,9 +745,9 @@ export default function LearnerActivityPage() {
             onClick={() =>
               downloadCsv(
                 "top-learners-engagement.csv",
-                ["Rank", "Name", "Email", "Engagement Score", "Completion %", "Risk Level", "Last Active", "State", "Region"],
+                ["Rank", "Name", "Email", "Completion %", "Risk Level", "Last Active", "State", "Region"],
                 (slow?.topLearners ?? []).map((f, i) => [
-                  i + 1, f.fullname, f.email, f.engagementScore, f.completionPct, f.riskLevel,
+                  i + 1, f.fullname, f.email, f.completionPct, f.riskLevel,
                   formatTs(f.lastcourseaccess), f.state ?? "Not Specified", f.region ?? "Not Specified",
                 ])
               )

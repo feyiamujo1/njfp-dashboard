@@ -44,13 +44,13 @@ export default function LeaderboardTable({ data, loading }: Props) {
       ),
     },
     {
-      title: "Engagement Score",
-      dataIndex: "engagementScore",
-      key: "engagement",
+      title: "Completion %",
+      dataIndex: "completionPct",
+      key: "completion",
       render: (v: number) => (
-        <span className="font-semibold text-blue-700">{v}</span>
+        <span className="font-semibold text-blue-700">{v}%</span>
       ),
-      sorter: (a, b) => b.engagementScore - a.engagementScore,
+      sorter: (a, b) => b.completionPct - a.completionPct,
     },
   ];
 
