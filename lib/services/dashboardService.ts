@@ -6,6 +6,7 @@ import type {
   EngagementStats,
   LearnerActivityStats,
   ModuleDetailStats,
+  MentorshipStats,
 } from "@/lib/types";
 
 export interface OverviewData {
@@ -32,4 +33,5 @@ export const dashboardService = {
   getLearnerActivity: () => fetchJson<LearnerActivityStats>("/api/dashboard/engagement/completion"),
   getModuleDetail: (moduleId: number) =>
     fetchJson<ModuleDetailStats>(`/api/dashboard/modules/${moduleId}`),
+  getMentorship: () => fetchJson<MentorshipStats>("/api/dashboard/mentorship"),
 };

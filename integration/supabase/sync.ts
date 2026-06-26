@@ -258,6 +258,65 @@ async function syncQuizDetails(): Promise<number> {
   return rows.length;
 }
 
+// ── Step 5: Mentorship groups ─────────────────────────────────────────────────
+
+interface MoodleGroup {
+  id: number;
+  name: string;
+  description: string;
+  idnumber: string;
+  visibility: number;
+}
+
+interface MoodleGroupMembersResult {
+  groupid: number;
+  userids: number[];
+}
+
+async function syncMentorshipGroups(): Promise<{ groupsCount: number; membersCount: number }> {
+  const groups = await moodleCall<MoodleGroup[]>("core_group_get_course_groups", {
+    courseid: COURSE_ID,
+  }).catch(() => [] as MoodleGroup[]);
+
+  if (!groups.length) return { groupsCount: 0, membersCount: 0 };
+
+  const groupRows = groups.map(g => ({
+    id: g.id,
+    name: g.name,
+    description: g.description ?? "",
+    idnumber: g.idnumber ?? "",
+    visibility: g.visibility ?? 0,
+    synced_at: ts(),
+  }));
+  await upsertBatch("mentorship_groups", groupRows, "id");
+
+  // Fetch all group members in a single Moodle call
+  const groupParams: Record<string, string | number> = {};
+  groups.forEach((g, i) => { groupParams[`groupids[${i}]`] = g.id; });
+
+  const memberResults = await moodleCall<MoodleGroupMembersResult[]>(
+    "core_group_get_group_members",
+    groupParams
+  ).catch(() => [] as MoodleGroupMembersResult[]);
+
+  // Delete existing memberships first to handle members who left groups
+  const { error: delErr } = await supabase
+    .from("mentorship_group_members")
+    .delete()
+    .in("group_id", groups.map(g => g.id));
+  if (delErr) throw new Error(`[sync] mentorship_group_members delete failed: ${delErr.message}`);
+
+  const memberRows = memberResults.flatMap(({ groupid, userids }) =>
+    userids.map(uid => ({ group_id: groupid, user_id: uid, synced_at: ts() }))
+  );
+
+  if (memberRows.length) {
+    await upsertBatch("mentorship_group_members", memberRows, "group_id,user_id");
+  }
+
+  return { groupsCount: groups.length, membersCount: memberRows.length };
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export interface SyncResult {
@@ -268,6 +327,8 @@ export interface SyncResult {
   completionsCount?: number;
   quizDetailsCount?: number;
   quizInstancesCount?: number;
+  mentorshipGroupsCount?: number;
+  mentorshipMembersCount?: number;
   error?: string;
 }
 
@@ -303,9 +364,23 @@ export async function runFullSync(): Promise<SyncResult> {
     const quizDetailsCount = await syncQuizDetails();
     console.log(`[sync] quiz_details: ${quizDetailsCount}`);
 
+    // Step 5 — fast: 1 call for groups + 1 call for all members
+    // Non-blocking: if the migration tables don't exist yet this step is skipped
+    // so it never crashes steps 1-4 which already completed successfully.
+    let mentorshipGroupsCount: number | undefined;
+    let mentorshipMembersCount: number | undefined;
+    try {
+      const r = await syncMentorshipGroups();
+      mentorshipGroupsCount = r.groupsCount;
+      mentorshipMembersCount = r.membersCount;
+      console.log(`[sync] mentorship_groups: ${mentorshipGroupsCount}, mentorship_members: ${mentorshipMembersCount}`);
+    } catch (mentorshipErr) {
+      console.warn(`[sync] mentorship step skipped (run migration 002 first): ${(mentorshipErr as Error).message}`);
+    }
+
     const durationMs = Date.now() - t0;
     await finalizeLog("ok", {
-      details: { studentsCount, modulesCount, completionsCount, quizDetailsCount, quizInstancesCount, durationMs },
+      details: { studentsCount, modulesCount, completionsCount, quizDetailsCount, quizInstancesCount, mentorshipGroupsCount, mentorshipMembersCount, durationMs },
     });
 
     return {
@@ -316,6 +391,8 @@ export async function runFullSync(): Promise<SyncResult> {
       completionsCount,
       quizDetailsCount,
       quizInstancesCount,
+      mentorshipGroupsCount,
+      mentorshipMembersCount,
     };
   } catch (err) {
     const error = (err as Error).message ?? "Unknown sync error";

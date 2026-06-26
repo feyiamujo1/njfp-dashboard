@@ -212,6 +212,44 @@ export interface ModuleDetailStats {
   students: ModuleStudentSummary[];
 }
 
+export interface MentorshipMember {
+  id: number;
+  fullname: string;
+  email: string;
+  profileimageurl: string;
+  state: string | null;
+  gender: string | null;
+  completionPct: number;
+  engagementScore: number;
+  riskLevel: RiskLevel;
+  daysSinceActive: number;
+  lastcourseaccess: number;
+}
+
+export interface MentorshipGroup {
+  id: number;
+  name: string;
+  description: string;
+  idnumber: string;
+  memberCount: number;
+  avgCompletionPct: number;
+  avgEngagementScore: number;
+  riskBreakdown: { active: number; atRisk: number; inactive: number };
+  completionBreakdown: { completed: number; inProgress: number; notStarted: number };
+  members: MentorshipMember[];
+}
+
+export interface MentorshipStats {
+  totalGroups: number;
+  assignedCount: number;
+  unassignedCount: number;
+  totalEnrolled: number;
+  avgGroupSize: number;
+  overallAvgCompletion: number;
+  groups: MentorshipGroup[];
+  unassigned: MentorshipMember[];
+}
+
 /** Slow path — completion cache (~30-min TTL). */
 export interface ProgressCompletionStats {
   startedPct: number;
