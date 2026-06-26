@@ -39,13 +39,13 @@ const RISK_LABELS: Record<RiskLevel, string> = {
 
 const MEMBER_CSV_HEADERS = [
   "Name", "Email", "State", "Gender",
-  "Completion %", "Engagement Score", "Risk", "Last Active",
+  "Completion %", "Risk", "Last Active",
 ];
 
 function memberCsvRows(members: MentorshipMember[]) {
   return members.map(m => [
     m.fullname, m.email, m.state ?? "", m.gender ?? "",
-    m.completionPct, m.engagementScore,
+    m.completionPct,
     RISK_LABELS[m.riskLevel],
     m.lastcourseaccess ? moment.unix(m.lastcourseaccess).format("YYYY-MM-DD") : "Never",
   ]);
@@ -120,14 +120,6 @@ function MemberTable({ members }: { members: MentorshipMember[] }) {
           </span>
         </div>
       ),
-    },
-    {
-      title: "Engagement",
-      dataIndex: "engagementScore",
-      key: "engagement",
-      width: 100,
-      sorter: (a, b) => b.engagementScore - a.engagementScore,
-      render: (v: number) => <span className="text-slate-600 text-sm">{v}</span>,
     },
     {
       title: "Risk",
@@ -217,11 +209,6 @@ function GroupDetailPanel({ group, colorIndex }: { group: MentorshipGroup; color
             label: "Avg Completion",
             tooltip: "Average course completion % across all members of this group.",
             value: `${group.avgCompletionPct}%`, bg: "bg-slate-50", style: { color },
-          },
-          {
-            label: "Avg Engagement",
-            tooltip: "Average engagement score across group members. Currently mirrors completion % and will incorporate quiz performance when available.",
-            value: group.avgEngagementScore, bg: "bg-slate-50", style: { color: "#374151" },
           },
           {
             label: "Active",
@@ -373,7 +360,7 @@ export default function MentorshipPage() {
       const hay = [m.fullname, m.email, m.state ?? ""].join(" ").toLowerCase();
       return q.split(/\s+/).every(w => hay.includes(w));
     });
-  }, [data?.unassigned, unassignedSearch]);
+  }, [data, unassignedSearch]);
 
   if (isError) {
     return (
@@ -392,7 +379,6 @@ export default function MentorshipPage() {
     name: g.idnumber,
     fullName: g.name,
     completion: g.avgCompletionPct,
-    engagement: g.avgEngagementScore,
     color: GROUP_COLORS[i] ?? CHART_COLORS.primary,
   })) ?? [];
 
@@ -552,7 +538,7 @@ export default function MentorshipPage() {
         title={
           <span className="flex items-center gap-1.5">
             Group Performance Comparison
-            <Tooltip title="Side-by-side comparison of average completion % and average engagement score per group.">
+            <Tooltip title="Average course completion % per group, alongside risk and completion status breakdowns.">
               <InfoCircleOutlined className="text-slate-400 cursor-help text-xs font-normal" />
             </Tooltip>
           </span>
@@ -567,13 +553,13 @@ export default function MentorshipPage() {
                   "group-comparison.csv",
                   [
                     "Group ID", "Group Name", "Members",
-                    "Avg Completion %", "Avg Engagement",
+                    "Avg Completion %",
                     "Active", "At-Risk", "Inactive",
                     "Completed", "In Progress", "Not Started",
                   ],
                   data.groups.map(g => [
                     g.idnumber, g.name, g.memberCount,
-                    g.avgCompletionPct, g.avgEngagementScore,
+                    g.avgCompletionPct,
                     g.riskBreakdown.active, g.riskBreakdown.atRisk, g.riskBreakdown.inactive,
                     g.completionBreakdown.completed, g.completionBreakdown.inProgress, g.completionBreakdown.notStarted,
                   ])
@@ -589,63 +575,28 @@ export default function MentorshipPage() {
           <Skeleton active paragraph={{ rows: 6 }} />
         ) : (
           <>
-            <Row gutter={[24, 24]}>
-              <Col xs={24} md={12}>
-                <div className="text-xs text-slate-500 font-medium mb-2 uppercase tracking-wide">
-                  Avg Completion %
-                </div>
-                <ResponsiveContainer width="100%" height={150}>
-                  <BarChart
-                    data={comparisonChartData}
-                    layout="vertical"
-                    margin={{ top: 4, right: 36, left: 12, bottom: 4 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={36} />
-                    <ChartTooltip
-                      formatter={(v: unknown) => [`${Number(v)}%`, "Avg Completion"]}
-                      labelFormatter={(label: unknown) =>
-                        comparisonChartData.find(d => d.name === String(label))?.fullName ?? String(label)
-                      }
-                    />
-                    <Bar dataKey="completion" radius={[0, 4, 4, 0]} maxBarSize={32}>
-                      {comparisonChartData.map((d, i) => (
-                        <Cell key={i} fill={d.color} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </Col>
-
-              <Col xs={24} md={12}>
-                <div className="text-xs text-slate-500 font-medium mb-2 uppercase tracking-wide">
-                  Avg Engagement Score
-                </div>
-                <ResponsiveContainer width="100%" height={150}>
-                  <BarChart
-                    data={comparisonChartData}
-                    layout="vertical"
-                    margin={{ top: 4, right: 36, left: 12, bottom: 4 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={36} />
-                    <ChartTooltip
-                      formatter={(v: unknown) => [Number(v), "Avg Engagement"]}
-                      labelFormatter={(label: unknown) =>
-                        comparisonChartData.find(d => d.name === String(label))?.fullName ?? String(label)
-                      }
-                    />
-                    <Bar dataKey="engagement" radius={[0, 4, 4, 0]} maxBarSize={32}>
-                      {comparisonChartData.map((d, i) => (
-                        <Cell key={i} fill={d.color} fillOpacity={0.7} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </Col>
-            </Row>
+            <ResponsiveContainer width="100%" height={150}>
+              <BarChart
+                data={comparisonChartData}
+                layout="vertical"
+                margin={{ top: 4, right: 36, left: 12, bottom: 4 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={36} />
+                <ChartTooltip
+                  formatter={(v: unknown) => [`${Number(v)}%`, "Avg Completion"]}
+                  labelFormatter={(label: unknown) =>
+                    comparisonChartData.find(d => d.name === String(label))?.fullName ?? String(label)
+                  }
+                />
+                <Bar dataKey="completion" radius={[0, 4, 4, 0]} maxBarSize={40}>
+                  {comparisonChartData.map((d, i) => (
+                    <Cell key={i} fill={d.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
 
             {/* Summary table */}
             <div className="mt-5 overflow-x-auto">
@@ -655,11 +606,6 @@ export default function MentorshipPage() {
                     <th className="text-left py-2 font-medium">Group</th>
                     <th className="text-right py-2 font-medium">Members</th>
                     <th className="text-right py-2 font-medium">Avg Completion</th>
-                    <th className="text-right py-2 font-medium">
-                      <Tooltip title="Average engagement score per group. Currently mirrors completion % — will incorporate quiz scores when available." styles={{ root: { maxWidth: 260 } }}>
-                        <span className="cursor-help border-b border-dashed border-slate-300">Avg Engagement</span>
-                      </Tooltip>
-                    </th>
                     <th className="text-right py-2 font-medium text-green-600">Active</th>
                     <th className="text-right py-2 font-medium text-amber-600">At-Risk</th>
                     <th className="text-right py-2 font-medium text-red-500">Inactive</th>
@@ -681,7 +627,6 @@ export default function MentorshipPage() {
                       <td className="py-2 text-right font-semibold" style={{ color: GROUP_COLORS[i] }}>
                         {g.avgCompletionPct}%
                       </td>
-                      <td className="py-2 text-right text-slate-600">{g.avgEngagementScore}</td>
                       <td className="py-2 text-right text-green-600 font-medium">{g.riskBreakdown.active}</td>
                       <td className="py-2 text-right text-amber-600 font-medium">{g.riskBreakdown.atRisk}</td>
                       <td className="py-2 text-right text-red-500 font-medium">{g.riskBreakdown.inactive}</td>
