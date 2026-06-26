@@ -14,7 +14,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const COURSE_ID = 6;
 const BATCH = 500;
-const CONCURRENCY = 50;
+const CONCURRENCY = 10;
+const BATCH_DELAY_MS = 100;
 const ts = () => new Date().toISOString();
 
 const MOODLE_BASE = Deno.env.get("MOODLE_BASE_URL")!;
@@ -68,6 +69,7 @@ async function batchRun<In, Out>(
 ): Promise<Out[]> {
   const results: Out[] = [];
   for (let i = 0; i < items.length; i += concurrency) {
+    if (i > 0) await new Promise<void>((r) => setTimeout(r, BATCH_DELAY_MS));
     results.push(...await Promise.all(items.slice(i, i + concurrency).map(fn)));
   }
   return results;
@@ -212,7 +214,9 @@ async function syncCompletions(): Promise<number> {
   const ids = (active ?? []).map((s: { id: number }) => s.id);
   console.log(`[sync] completions: ${ids.length} active students`);
 
-  const rows = await batchRun(ids, async (userId: number) => {
+  type CompletionRow = { user_id: number; completed_cmids: number[]; synced_at: string };
+
+  const allResults = await batchRun(ids, async (userId: number): Promise<CompletionRow | null> => {
     try {
       const res = await moodleCall<{
         statuses: Array<{ cmid: number; state: number; tracking: number }>;
@@ -225,9 +229,14 @@ async function syncCompletions(): Promise<number> {
         .map(({ cmid }) => cmid);
       return { user_id: userId, completed_cmids: done, synced_at: ts() };
     } catch {
-      return { user_id: userId, completed_cmids: [], synced_at: ts() };
+      // Return null — a failed call must never overwrite existing completion data
+      return null;
     }
   });
+
+  const rows = allResults.filter((r): r is CompletionRow => r !== null);
+  const skipped = ids.length - rows.length;
+  if (skipped > 0) console.warn(`[sync] ${skipped} users skipped (502 — existing data preserved)`);
 
   await upsertBatch("completions", rows, "user_id");
   return rows.length;

@@ -67,10 +67,14 @@ async function upsertBatch<T extends Record<string, unknown>>(
 async function batchRun<In, Out>(
   items: In[],
   fn: (item: In) => Promise<Out>,
-  concurrency = 50
+  concurrency = 10,
+  batchDelayMs = 100
 ): Promise<Out[]> {
   const results: Out[] = [];
   for (let i = 0; i < items.length; i += concurrency) {
+    if (i > 0 && batchDelayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, batchDelayMs));
+    }
     results.push(...await Promise.all(items.slice(i, i + concurrency).map(fn)));
   }
   return results;
@@ -215,11 +219,13 @@ async function syncCompletions(): Promise<number> {
   const ids = (active ?? []).map((s: { id: number }) => s.id);
   console.log(`[sync] completions: fetching for ${ids.length} active students`);
 
-  const rows = await batchRun(
+  type CompletionRow = { user_id: number; completed_cmids: number[]; synced_at: string };
+
+  const allResults = await batchRun(
     ids,
-    async (userId: number) => {
+    async (userId: number): Promise<CompletionRow | null> => {
       try {
-        // _attempt=3 disables retries — retrying per-user calls would triple load on Moodle
+        // _attempt=3 disables retries — per-user retries would triple load on Moodle
         const res = await moodleCall<{
           statuses: Array<{ cmid: number; state: number; tracking: number }>;
         }>("core_completion_get_activities_completion_status", { courseid: COURSE_ID, userid: userId }, 3);
@@ -230,11 +236,15 @@ async function syncCompletions(): Promise<number> {
 
         return { user_id: userId, completed_cmids: done, synced_at: ts() };
       } catch {
-        return { user_id: userId, completed_cmids: [], synced_at: ts() };
+        // Return null instead of empty array — a failed call must never overwrite existing data
+        return null;
       }
-    },
-    50
+    }
   );
+
+  const rows = allResults.filter((r): r is CompletionRow => r !== null);
+  const skipped = ids.length - rows.length;
+  if (skipped > 0) console.warn(`[sync] completions: ${skipped} users skipped (Moodle 502 — existing data preserved)`);
 
   await upsertBatch("completions", rows, "user_id");
   return rows.length;
