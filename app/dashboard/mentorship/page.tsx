@@ -502,7 +502,7 @@ export default function MentorshipPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="!space-y-6">
       {/* KPI row */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>
