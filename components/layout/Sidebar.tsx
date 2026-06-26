@@ -9,6 +9,7 @@ import {
   ThunderboltOutlined,
   UserOutlined,
   ApartmentOutlined,
+  GroupOutlined,
 } from "@ant-design/icons";
 
 const { Sider } = Layout;
@@ -38,6 +39,11 @@ const NAV_ITEMS = [
     key: "/dashboard/engagement",
     icon: <ThunderboltOutlined />,
     label: <Link href="/dashboard/engagement">Learner Engagement</Link>,
+  },
+  {
+    key: "/dashboard/mentorship",
+    icon: <GroupOutlined />,
+    label: <Link href="/dashboard/mentorship">Learner Mentorship</Link>,
   },
 ];
 

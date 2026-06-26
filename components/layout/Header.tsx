@@ -1,13 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Layout, Button, DatePicker, Space, Typography } from "antd";
-import { CalendarOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Layout, Space, Typography } from "antd";
 import { usePathname } from "next/navigation";
 import { toast } from "react-toastify";
 
 const { Header } = Layout;
-const { RangePicker } = DatePicker;
 const { Text, Title } = Typography;
 
 const PAGE_TITLES: Record<string, string> = {
@@ -15,7 +13,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/modules": "Course Progress",
   "/dashboard/engagement": "Engagement",
   "/dashboard/assessments": "Learning Performance",
-  // "/dashboard/mentorship": "Mentorship",
+  "/dashboard/mentorship": "Mentorship",
   "/dashboard/risk": "Risk & Intervention",
   "/dashboard/learners": "Learners",
   "/dashboard/course-structure": "Course Structure"
@@ -44,20 +42,6 @@ function formatTimestamp(date: Date): string {
 
 export default function DashboardHeader() {
   const pathname = usePathname();
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  useEffect(() => {
-    setLastUpdated(new Date());
-  }, []);
-
-  const handleRefresh = () => {
-    const id = toast.loading("Refreshing...");
-    setTimeout(() => {
-      toast.dismiss(id);
-      toast.success("Data refreshed successfully");
-      setLastUpdated(new Date());
-    }, 1000);
-  };
 
   return (
     <Header className="!bg-white !px-6 !h-16 !leading-normal border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
@@ -65,23 +49,12 @@ export default function DashboardHeader() {
         <Title level={5} className="!m-0 !leading-none">
           {getPageTitle(pathname)}
         </Title>
-        {lastUpdated && (
+        {/* {lastUpdated && (
           <Text type="secondary" className="!text-[11px]">
             Last updated: {formatTimestamp(lastUpdated)}
           </Text>
-        )}
+        )} */}
       </div>
-
-      <Space>
-        {/* <RangePicker separator="-" size="small" /> */}
-        {/* <Button
-          icon={<ReloadOutlined />}
-          onClick={handleRefresh}
-          size="small"
-          iconPlacement={"start"}>
-          Refresh
-        </Button> */}
-      </Space>
     </Header>
   );
 }
