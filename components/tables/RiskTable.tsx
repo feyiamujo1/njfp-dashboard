@@ -4,7 +4,7 @@ import { Table, Tag, Button, Input, Progress } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
-import { SearchOutlined } from "@ant-design/icons";
+import { SearchOutlined, WarningFilled } from "@ant-design/icons";
 import moment from "moment";
 import type { FellowSummary, RiskLevel } from "@/lib/types";
 import { TABLE_PAGE_SIZE, CHART_COLORS } from "@/lib/constants";
@@ -47,15 +47,21 @@ export default function RiskTable({ data, loading }: Props) {
   const columns: ColumnsType<FellowSummary> = [
     {
       title: "Name",
-      dataIndex: "fullname",
       key: "name",
-      render: (v: string) => <span className="font-medium text-slate-900">{v}</span>,
+      render: (_: unknown, r: FellowSummary) => (
+        <span className="font-medium text-slate-900 flex items-center gap-1.5">
+          {r.lastcourseaccess === 0 && (
+            <WarningFilled className="text-red-500 shrink-0" title="Never logged in" />
+          )}
+          {r.fullname}
+        </span>
+      ),
     },
     {
       title: "Last Activity",
       dataIndex: "lastcourseaccess",
       key: "lastActive",
-      render: (ts: number) => moment.unix(ts).fromNow(),
+      render: (ts: number) => ts === 0 ? "Never" : moment.unix(ts).fromNow(),
       sorter: (a, b) => b.lastcourseaccess - a.lastcourseaccess,
     },
     {
